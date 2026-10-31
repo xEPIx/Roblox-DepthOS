@@ -1,0 +1,754 @@
+DepthOS — Production Game Design Document & Technical Blueprint
+
+1. Core Gameplay Loop
+
+                         [ INITIATE WORKLOAD ]
+                       (Press / Hold Process Key)
+                                   │
+                                   ▼
+             ┌───────────────────────────────────────────┐
+             │       SYSTEM DYNAMICS SIMULATION          │
+             │  • +Bytes to Volatile Cache               │
+             │  • +Heat (°C) approaching critical limits │
+             │  • +RAM Allocated toward 100% capacity    │
+             └───────────────────────────────────────────┘
+                                   │
+                                   ▼
+              [ CRITICAL DECISION POINT: THE REDLINE ]
+              Under 85.0°C: Baseline generation rate (1.0x)
+              85.0°C–99.9°C: THERMAL SURGE ACTIVE (3.0x – 10.0x)
+                                   │
+                  ┌────────────────┴────────────────┐
+                  ▼                                 ▼
+         [ GREED: PUSH FURTHER ]         [ CAUTION: HIT FLUSH ]
+                  │                                 │
+         ┌────────┴────────┐                        │
+         ▼                 ▼                        │
+    [ HIT 100°C ]    [ HIT 100% RAM ]               │
+        (BSOD)         (STALL/HALT)                 │
+         │                 │                        │
+  • Volatile Wiped  • Buffer Locked                 │
+  • 5s Forced Reboot • Forced to Flush              │
+  • 0 Bytes Banked   • Loss of Tempo                │
+         │                 │                        │
+         └────────┬────────┴────────────────────────┘
+                  │
+                  ▼
+          [ BANKED BYTES SECURED ]
+                  │
+                  ▼
+     [ REINVEST IN HARDWARE ARCHITECTURE ]
+     (CPU Clock, RAM Expansion, Cooling, Storage, Daemons)
+                  │
+                  ▼
+     [ ESCALATE OS LEVELS & KERNEL PRESTIGE ]
+
+The Moment-to-Moment Experience
+
+1.  Engage Workload: The player triggers system cycles manually or monitors
+    active daemons.
+2.  Evaluate Risk Vectors: Two gauges rise concurrently:
+      - Heat Gauge: Rises continuously with each cycle. Above 85°C, Thermal
+        Surge activates, rapidly escalating payout multipliers while narrowing
+        reaction windows.
+      - RAM Allocation: Fills block-by-block. Reaching 100% RAM halts all
+        generation, freezing the player in the high-heat danger zone.
+3.  Execute the Flush: The player releases or hits Flush Cache. A channel time
+    initiates. During this channel, the system cannot process new cycles, but
+    passive cooling continues. If the flush completes before 100°C is reached,
+    all unbanked Bytes safely transfer to Banked Bytes.
+4.  Hardware Upgrade Cycle: Banked Bytes are spent on higher clock frequencies
+    (faster throughput, more heat), liquid cooling / fans (faster heat
+    dissipation), RAM sticks (larger volatile buffer), and storage buses
+    (faster/higher-yield flushes).
+5.  Macro Progression: Lifetime Banked Bytes level up the OS from Version 1.0 to
+    Version 100.0, unlocking advanced hardware sockets, daemon slots, and Kernel
+    Resets (Prestige).
+
+2. New Player Experience (First 30 Minutes)
+
+| Time Window       | Player Activity                                                                                                                                    | Systems Introduced                                    | Friction / Psychological Hook                                                                                                                                 | Target Metrics                                                                      |
+| :---------------- | :------------------------------------------------------------------------------------------------------------------------------------------------- | :---------------------------------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------ | :---------------------------------------------------------------------------------- |
+| **0:00 – 1:30**   | Player spawns into a dimly lit, terminal-styled OS desktop. Guided by a pulsating prompt to hold `[SPACE]` or click `PROCESS`.                     | `Process Button`, `Bytes`, `Heat Gauge`, `RAM Gauge`. | Player clicks 15–20 times. Volatile Bytes tick up. RAM hits 70%, Heat hits 60°C. Text warning flashes amber.                                                  | 0 Banked Bytes. 45 Volatile Bytes.                                                  |
+| **1:30 – 3:00**   | Tutorial prompt commands: `HOLD [F] TO FLUSH`. Player holds `[F]`, channels for 1.2s, and banks their first 60 Bytes.                              | `Flush Button`, `Banked Bytes`, `Hardware Shop`.      | RAM clears to 0 MB. Heat drops. The tactile satisfaction of cashing out. The Shop button unlocks.                                                             | First upgrade purchased: **RAM Stick Lvl 1** (Cost: 20 Bytes).                      |
+| **3:00 – 7:00**   | Player tests upgraded capacity. Pushes the Process button aggressively. Heat crosses 85°C for the first time.                                      | `Thermal Surge (85°C–99.9°C)`.                        | UI flashes crimson. Audio pitch shifts upward. Payouts spike 3x. Player experiences the "gambler's rush" of riding the high-heat multiplier.                  | First intentional ride in the Surge zone. Banked balance reaches 250 Bytes.         |
+| **7:00 – 10:00**  | Player gets greedy, exceeds 100°C, and triggers their first crash.                                                                                 | `BSOD (Blue Screen of Death)`, `Crash Penalties`.     | Glitch shader triggers; monitor cuts to blue; 5-second lockout. All unbanked Bytes (150+) are deleted. Player learns the cost of greed with low early stakes. | 1st BSOD logged. Hardware purchases: **Cooling Fan Lvl 1 & 2**.                     |
+| **10:00 – 18:00** | Player builds a rhythm: riding the Thermal Surge to 95°C, hitting Flush, purchasing CPU and Cooling upgrades. Level 5 reached.                     | `OS Levels`, `Auto-Process Daemon Alpha`.             | First background daemon purchased. Generates passive Bytes, consuming 20% of baseline RAM. Active management shifts to pacing flushes around passive load.    | Level 5 reached. Total Lifetime Banked Bytes: \~2,500.                              |
+| **18:00 – 25:00** | Pacing accelerates. Player balances CPU Clock upgrades (which increase heat generation) against Cooling upgrades. RAM management becomes critical. | `Bus Buffer upgrades`, `Efficiency scaling`.          | RAM fills in 4 seconds if unattended. Player must optimize upgrade ratios rather than blindly purchasing the cheapest item.                                   | Level 8 reached. Total Lifetime Banked Bytes: \~10,000.                             |
+| **25:00 – 30:00** | Player pushes toward Level 10. Thermal Surge multiplier scales to 4.5x via upgrades. Final stretch requires a series of high-capacity flushes.     | `Kernel Reset (Prestige) Preview`.                    | Level 10 reached: Desktop unlocks the `Kernel Terminal`. System displays prompt: *"CRITICAL ROOT ACCESS AVAILABLE. INITIATE KERNEL REBOOT?"*                  | Session ends on high-retention cliffhanger: Rebirth available for **Quantum Bits**. |
+
+3. Complete Resource System
+
+1. Volatile Bytes (volatileBytes)
+
+  - Role: Immediate, unbanked currency earned via active processing or
+    background daemons.
+  - Storage Location: Exists purely inside volatile RAM.
+  - Failure State: If Heat hits 100.0°C, volatileBytes is set to 0.
+  - Cap: Mathematically capped by available RAM capacity.
+
+2. Banked Bytes (bankedBytes)
+
+  - Role: Persistent, secure currency.
+  - Source: Transferred exclusively from volatileBytes via the Flush Cache
+    action.
+  - Usage: Used to purchase hardware upgrades, unlock OS levels, and purchase
+    daemon scripts.
+  - Persistence: Saved directly to the Roblox DataStore. Never lost on crash or
+    reboot.
+
+3. Heat (heat)
+
+  - Role: Primary risk engine. Measured in degrees Celsius (°C).
+  - Bounds: Absolute minimum = 25.0°C (Ambient). Critical failure threshold =
+    100.0°C.
+  - State Bands:
+      - 25.0°C – 69.9°C: Nominal Band (Multiplier: 1.0x).
+      - 70.0°C – 84.9°C: Warning Band (Multiplier: 1.25x; amber UI, fan audio
+        initiates).
+      - 85.0°C – 99.9°C: Thermal Surge Band (Multiplier: 3.0x to 10.0x dynamic;
+        red UI pulse, high-pitch audio).
+      - 100.0°C: BSOD State (Fatal crash).
+
+4. RAM (ramUsed / ramMax)
+
+  - Role: Spatial bottleneck. Measured in Megabytes (MB) up to Terabytes (TB)
+    late-game.
+  - Mechanic: Every processed cycle writes memory blocks into RAM.
+  - Failure State: At 100% capacity, the system triggers a Buffer Stall. The
+    Process button is disabled, active daemons idle, and the player cannot
+    generate bytes until a Flush is performed.
+
+5. XP & OS Levels (level, currentXP, requiredXP)
+
+  - Role: Macro-progression metric.
+  - Source: Earned strictly at a 1:1 ratio with Banked Bytes upon successful
+    flushes. Lost volatile bytes award 0 XP.
+  - Function: Unlocks new hardware tiers in the Shop, opens daemon slots, and
+    gates prestige tiers.
+
+6. Quantum Bits / Q-Bits (qBits - Prestige Currency)
+
+  - Role: Non-inflationary meta-currency awarded upon performing a Kernel Reset.
+  - Formula Source: Calculated based on cumulative Lifetime Banked Bytes at time
+    of reset.
+  - Usage: Spent in the Root Architecture Tree for permanent, run-agnostic
+    multipliers (e.g., base cooling efficiency, starting hardware specs,
+    automated flush logic).
+
+4. Mathematical Formulas & Engine Logic
+
++---------------------------------------------------------------------------------------------------+
+| GLOBAL SIMULATION CONSTANTS                                                                       |
+| Ambient Temperature (T_amb)  : 25.0°C                                                             |
+| Critical Thermal Cap (T_crit): 100.0°C                                                            |
+| Surge Threshold (T_surge)    : 85.0°C                                                             |
+| Tick Frequency (dt)          : 0.1 seconds (10 Hz simulation step)                                |
++---------------------------------------------------------------------------------------------------+
+
+1. Byte Generation Formula
+
+When a process cycle executes:
+
+\text{BytesGenerated} = \text{Round}\left( B_{\text{base}} \times M_{\text{thermal}} \times (1 + P_{\text{qbit}}) \right)
+
+Where:
+
+  - B_{\text{base}} = \text{CPU Level} \times \text{Architecture Multiplier}
+  - M_{\text{thermal}} = \begin{cases} 
+    1.0 & \text{if } T < 70.0 \\ 
+    1.25 & \text{if } 70.0 \le T < 85.0 \\ 
+    3.0 + 7.0 \times \left( \frac{T - 85.0}{15.0} \right)^2 & \text{if } 85.0 \le T < 100.0 
+    \end{cases}
+  - P_{\text{qbit}} = \text{Permanent Prestige Multiplier Percentage}
+
+Thermal Surge Scaling Detail: At 85.0°C, the multiplier is exactly 3.0x.
+At 99.9°C, it reaches 10.0x. The quadratic curve (\frac{T-85}{15})^2 ensures the
+steepest reward spike occurs in the final 2 degrees (98.0°C–99.9°C).
+
+2. Heat Generation Formula
+
+Every process cycle adds an instantaneous thermal impulse:
+
+\Delta T_{\text{add}} = H_{\text{base}} \times \left( 1 + \frac{\text{CPU Level}}{8} \right) \times \left( 1 - C_{\text{paste}} \right)
+
+Where:
+
+  - H_{\text{base}} = 2.50^\circ\text{C}
+  - C_{\text{paste}} = \text{Thermal Compound efficiency percentage (0.0 to 0.40)}
+
+3. Cooling Dissipation Formula
+
+Evaluated every simulation tick (dt = 0.1\text{s}):
+
+T_{t+dt} = \max\left( T_{\text{amb}}, T_t - \left( R_{\text{cool}} \times \left[ 1 + 0.5 \times \left( \frac{T_t - T_{\text{amb}}}{T_{\text{crit}} - T_{\text{amb}}} \right) \right] \times dt \right) \right)
+
+  - Newton's Law of Cooling approximation: Cooling efficiency naturally scales
+    up by up to 50% as the differential between system heat and ambient heat
+    widens.
+  - R_{\text{cool}} = \text{Sum of all active Fans, Heat Sinks, and Liquid Radiators (in } ^\circ\text{C/sec)}.
+
+4. RAM Allocation & Saturation Formula
+
+Each processed cycle consumes volatile memory:
+
+\text{RAM}_{\text{cost}} = \text{RAM}_{\text{base}} \times \left( 1 + \frac{\text{BytesGenerated}}{500} \right)
+
+  - At Level 1: \text{RAM}_{\text{cost}} = 2.0\text{ MB}.
+  - When \text{ramUsed} + \text{RAM}_{\text{cost}} > \text{ramMax}, generation
+    is aborted and state flag BUFFER_STALL = true is set.
+
+5. Flush Payout & Time Formula
+
+When the Flush sequence completes:
+
+\text{BankedPayout} = \text{Round}\left( \text{volatileBytes} \times \left( 1 + \text{BusBonus} \right) \right)
+
+The channel duration required to flush:
+
+\text{Duration}_{\text{flush}} = \max\left( 0.25, 1.50 \times \left( \frac{\text{ramUsed}}{\text{ramMax}} \right) \times (1 - \text{BusSpeedReduction}) \right)
+
+6. Crash Execution & Penalties
+
+Triggered the instant T \ge 100.0^\circ\text{C}:
+
+\begin{aligned} \text{volatileBytes} &\leftarrow 0 \ \text{ramUsed}
+&\leftarrow 0 \ \text{heat} &\leftarrow T_{\text{amb}} \quad (\text{upon reboot
+completion}) \ \text{InputLocked} &\leftarrow \text{true} \quad (\text{Duration:
+} 5.0\text{ seconds}) \end{aligned}
+
+5. Progression Curve (Levels 1–100)
+
+Progression is driven by Total Lifetime Banked Bytes (TLBB). Level does not
+decrease on prestige.
+
+Progression Milestone Formula
+
+For a given Level L (1 \le L \le 100):
+
+\text{RequiredXP}(L) = \text{Round}\left( 50 \times L^{2.65} \right)
+
+Cumulative Lifetime Bytes needed to reach Level L:
+
+\text{CumulativeXP}(L) = \sum_{i=1}^{L-1} \text{RequiredXP}(i)
+
++-------+-------------------+--------------------+---------------------------------------------------+
+| LEVEL | XP TO NEXT LEVEL  | CUMULATIVE XP      | GAMEPLAY MILESTONES & UNLOCKS                     |
++-------+-------------------+--------------------+---------------------------------------------------+
+| 1     | 50                | 0                  | Base OS, Manual Process, Basic Flush, RAM: 64MB   |
+| 2     | 312               | 50                 | Shop: CPU Lvl 2, Chassis Fan Lvl 1                |
+| 3     | 821               | 362                | Thermal Surge Visualizer, RAM: 128MB              |
+| 5     | 2,747             | 2,548              | Daemon Program Slot 1, Auto-Process Alpha         |
+| 10    | 14,930            | 23,412             | KERNEL RESET 1 (Prestige Tier 1), Root Tree       |
+| 15    | 40,642            | 122,810            | Dual-Channel RAM Sockets, Shop Tier 2 Hardware    |
+| 20    | 84,332            | 376,490            | Daemon Program Slot 2, Auto-Flush Daemon Alpha    |
+| 25    | 150,014           | 889,120            | Liquid Cooling Loop Sockets Unlocked              |
+| 30    | 241,310           | 1,745,210          | KERNEL RESET 2, High-Frequency RAM Architecture   |
+| 40    | 508,245           | 5,031,900          | Daemon Program Slot 3, Auto-Process Beta          |
+| 50    | 918,410           | 11,481,200         | KERNEL RESET 3, Cryogenic Cooling Architecture    |
+| 60    | 1,496,210         | 22,510,800         | Enterprise Bus (Instant Flush Channel -50%)       |
+| 75    | 2,689,450         | 50,490,200         | KERNEL RESET 4, Daemon Program Slot 4             |
+| 90    | 4,378,100         | 98,340,100         | Quantum Coprocessors Sockets                      |
+| 100   | 5,876,400         | 145,210,000        | SINGULARITY OS: Final Achievement, Infinite Scale |
++-------+-------------------+--------------------+---------------------------------------------------+
+
+6. Hardware Upgrade Tree
+
+Hardware upgrades are divided into five architectural categories. Each upgrade
+features distinct baseline benefits and mechanical trade-offs.
+
+                             [ MOTHERBOARD ARCHITECTURE ]
+                                          │
+         ┌───────────────┬────────────────┼───────────────┬────────────────┐
+         ▼               ▼                ▼               ▼                ▼
+     [ CPU ]          [ RAM ]         [ COOLING ]     [ STORAGE/BUS ] [ AUTOMATION ]
+   Clock Speed     Capacity & Bus    Heat Sink / Fan   Flush Velocity  Daemon Threads
+  (+Bytes, +Heat)  (+Buffer Limit)   (-°C/sec Decay)   (+% Payout)     (Passive Tasks)
+
+1. CPU (Clock Frequency)
+
+  - Design Philosophy: Increases yield per cycle, but drastically increases heat
+    generation per cycle.
+  - Tiers:
+      - Tier 1 (L1–L10): Silicon Base (0.8 GHz – 2.0 GHz)
+      - Tier 2 (L11–L25): Multicore Architecture (2.4 GHz – 4.5 GHz)
+      - Tier 3 (L26–L50): Overclocked Liquid Cores (5.0 GHz – 8.2 GHz)
+      - Tier 4 (L51–L75): Photonic Processing Units (10 GHz – 50 GHz)
+      - Tier 5 (L76–L100): Quantum Annealing Clusters
+
+2. RAM (Buffer Architecture)
+
+  - Design Philosophy: Expands maximum volatile storage capacity, allowing
+    longer execution sequences before hitting a Buffer Stall.
+  - Tiers:
+      - Tier 1: DDR2 Architecture (64 MB – 512 MB)
+      - Tier 2: DDR4 High-Bandwidth (1 GB – 16 GB)
+      - Tier 3: DDR5 Enterprise ECC (32 GB – 256 GB)
+      - Tier 4: Optane Neuromorphic Memory (512 GB – 4 TB)
+      - Tier 5: Infinite Sub-atomic Coherence Cells
+
+3. Cooling Infrastructure
+
+  - Design Philosophy: Counteracts CPU heat generation by accelerating passive
+    cooling per second.
+  - Tiers:
+      - Tier 1: Passive Aluminum Extrusion Fin (2.0°C/s – 6.0°C/s)
+      - Tier 2: Dual-Bearing High-RPM Fans (8.0°C/s – 18.0°C/s)
+      - Tier 3: Closed-Loop Liquid Coolers (22.0°C/s – 50.0°C/s)
+      - Tier 4: Sub-Zero Phase-Change Compressor (60.0°C/s – 120.0°C/s)
+      - Tier 5: Liquid Nitrogen Dripper System (150.0°C/s – 350.0°C/s)
+
+4. Storage & Bus Channels
+
+  - Design Philosophy: Accelerates flush speeds and adds percentage dividend
+    bonuses on all safely banked transfers.
+  - Tiers:
+      - Tier 1: IDE Ribbon Cable (Base Flush Time: 1.5s, 0% Bonus)
+      - Tier 2: SATA-III Controller (Base Flush Time: 1.0s, +5% Bonus per tier)
+      - Tier 3: NVMe M.2 Gen 5 (Base Flush Time: 0.6s, +15% Bonus per tier)
+      - Tier 4: PCIe Direct PCIe-Fabric (Base Flush Time: 0.3s, +35% Bonus per
+        tier)
+      - Tier 5: Optical Quantum Bus (Instantaneous Flush, +75% Bonus per tier)
+
+5. Automation Architecture (Daemon Motherboard Bus)
+
+  - Design Philosophy: Unlocks concurrent daemon background threads and scales
+    autonomous execution rates.
+  - Unlocks:
+      - Level 5: 1st Expansion Slot (Auto-Process Alpha)
+      - Level 20: 2nd Expansion Slot (Auto-Flush Alpha)
+      - Level 40: 3rd Expansion Slot (Auto-Process Beta)
+      - Level 75: 4th Expansion Slot (Dynamic Overclock Daemon)
+
+7. Shop System: Pricing & Scaling Formulas
+
+Every component cost scales exponentially using the formula:
+
+\text{Price}(L) = \text{Round}\left( \text{BasePrice} \times (\text{CostMultiplier})^L \right)
+
++--------------------+------------+------------+---------------+-------------------------------------+
+| UPGRADE COMPONENT  | BASE PRICE | MULTIPLIER | MAX SUB-LEVEL | STAT IMPROVEMENT PER LEVEL          |
++--------------------+------------+------------+---------------+-------------------------------------+
+| CPU Clock          | 15 Bytes   | 1.58       | 25 / Tier     | +2 Base Bytes/Click, +0.35°C Heat   |
+| RAM Stick          | 20 Bytes   | 1.45       | 25 / Tier     | +64 MB Max RAM                      |
+| Chassis Cooling    | 25 Bytes   | 1.52       | 25 / Tier     | +1.8°C/sec Passive Dissipation      |
+| Bus Buffer         | 50 Bytes   | 1.72       | 10 / Tier     | -0.1s Flush Time, +5% Bank Dividend |
+| Thermal Paste      | 100 Bytes  | 2.10       | 5 / Tier      | -5% Heat Generated Per Click        |
++--------------------+------------+------------+---------------+-------------------------------------+
+
+Definitive Cost Curve Table (Levels 1–10)
+
++-------+-------------+-------------+-----------------+--------------+-------------------+
+| LEVEL | CPU CLOCK   | RAM STICK   | CHASSIS COOLING | BUS BUFFER   | THERMAL PASTE     |
++-------+-------------+-------------+-----------------+--------------+-------------------+
+| 1     | 24 Bytes    | 29 Bytes    | 38 Bytes        | 86 Bytes     | 210 Bytes         |
+| 2     | 37 Bytes    | 42 Bytes    | 58 Bytes        | 148 Bytes    | 441 Bytes         |
+| 3     | 59 Bytes    | 61 Bytes    | 88 Bytes        | 255 Bytes    | 926 Bytes         |
+| 4     | 94 Bytes    | 89 Bytes    | 133 Bytes       | 438 Bytes    | 1,945 Bytes       |
+| 5     | 148 Bytes   | 128 Bytes   | 203 Bytes       | 753 Bytes    | 4,084 Bytes (MAX) |
+| 6     | 234 Bytes   | 186 Bytes   | 308 Bytes       | 1,296 Bytes  | —                 |
+| 7     | 369 Bytes   | 270 Bytes   | 469 Bytes       | 2,229 Bytes  | —                 |
+| 8     | 584 Bytes   | 392 Bytes   | 712 Bytes       | 3,833 Bytes  | —                 |
+| 9     | 922 Bytes   | 568 Bytes   | 1,083 Bytes     | 6,593 Bytes  | —                 |
+| 10    | 1,457 Bytes | 824 Bytes   | 1,646 Bytes     | 11,341 Bytes | —                 |
++-------+-------------+-------------+-----------------+--------------+-------------------+
+
+8. Prestige System: Kernel Reset
+
+When a player reaches Level 10 or higher, they can initiate a Kernel Reset. This
+purges hardware and unbanked/banked bytes in exchange for Quantum Bits (Q-Bits).
+
+                              [ KERNEL RESET INITIATED ]
+                                          │
+              ┌───────────────────────────┴───────────────────────────┐
+              ▼                                                       ▼
+      [ PURGED SYSTEMS ]                                      [ PRESERVED ASSETS ]
+  • Current Banked Bytes -> 0                             • OS Level Milestone History
+  • Volatile Bytes -> 0                                   • Total Lifetime Banked Bytes
+  • RAM Capacity -> Base 64 MB                            • Unlocked Achievements
+  • CPU Clock -> Base 1.0 GHz                             • Cosmetic System Themes
+  • Cooling Capacity -> Base 4.0°C/s                      • Purchased Gamepasses
+  • Active Daemons Terminated                             • QUANTUM ROOT TREE PROGRESS
+                                          │
+                                          ▼
+                            [ Q-BITS ISSUED TO WALLET ]
+
+Prestige Formula
+
+The quantity of Q-Bits awarded upon a Kernel Reset is determined by:
+
+\text{QBitsAwarded} = \text{Floor}\left( 10 \times \left( \frac{\text{LifetimeBankedBytes}}{25000} \right)^{0.5} \right)
+
+  - At 25,000 Lifetime Bytes (approx. Level 10): 10 Q-Bits
+  - At 100,000 Lifetime Bytes (approx. Level 15): 20 Q-Bits
+  - At 1,000,000 Lifetime Bytes (approx. Level 26): 63 Q-Bits
+  - At 10,000,000 Lifetime Bytes (approx. Level 48): 200 Q-Bits
+
+The Root Architecture Tree (Prestige Skill Tree)
+
+                              [ ROOT ACCESS HUB ]
+                                       │
+         ┌─────────────────────────────┼─────────────────────────────┐
+         ▼                             ▼                             ▼
+[ CORE STABILITY ]           [ THERMAL DYNAMICS ]          [ QUANTUM PIPELINE ]
+  +Base RAM on Reboot          +Dissipation Baseline         +Base Payout Multiplier
+  Node 1: 5 Q-Bits             Node 1: 5 Q-Bits              Node 1: 10 Q-Bits
+  Node 2: 15 Q-Bits            Node 2: 20 Q-Bits             Node 2: 30 Q-Bits
+  Node 3: 45 Q-Bits            Node 3: 50 Q-Bits             Node 3: 100 Q-Bits
+         │                             │                             │
+         └─────────────────────────────┼─────────────────────────────┘
+                                       │
+                                       ▼
+                          [ SURGE DRIFT EXPLOITER ]
+                      (Expands Surge Window: 80°C–99.9°C)
+                                Cost: 150 Q-Bits
+
+1.  Superconductor Bus (Quantum Pipeline): Increases global byte production by
+    +15% per rank (Max: 5 ranks).
+2.  Cryogenic Substrate (Thermal Dynamics): Increases base passive cooling by
+    +3.0°C/sec per rank (Max: 5 ranks).
+3.  Non-Volatile Registers (Core Stability): Retain 5% of Banked Bytes through a
+    Kernel Reset per rank (Max: 3 ranks, 15% retention).
+4.  Surge Drift Exploiter (Master Node): Expands the Thermal Surge zone to start
+    at 80.0°C instead of 85.0°C, increasing the high-multiplier operational
+    window by 33%.
+
+9. Idle and Automation Systems
+
+Automation programs run as background processes ("Daemons"). They generate load,
+consume continuous memory, and execute logic cycles automatically.
+
++---------------------------------------------------------------------------------------------------+
+| DAEMON PROCESS THREAD ARCHITECTURE                                                                |
+| Max Slots: 4 (Unlocked at Levels 5, 20, 40, 75)                                                   |
+| System Rule: Total Daemon RAM Consumption CANNOT exceed 75% of current Max RAM                    |
++---------------------------------------------------------------------------------------------------+
+
+1. Auto-Process Alpha (miner_d.exe)
+
+  - Unlocked: Level 5
+  - RAM Allocation Overhead: Consumes a flat 16 MB of RAM constantly while
+    active.
+  - Behavior: Automatically triggers 2 Process cycles per second.
+  - Thermal Impact: Contributes continuous heat generation. If the player goes
+    AFK without adequate cooling, miner_d.exe will overheat the system and cause
+    a BSOD.
+
+2. Auto-Flush Alpha (flush_d.exe)
+
+  - Unlocked: Level 20
+  - RAM Allocation Overhead: Consumes 32 MB of RAM.
+  - Behavior: Monitored rule-set. Automatically triggers a Flush when:
+    \text{ramUsed} \ge 0.90 \times \text{ramMax} \quad \text{OR} \quad \text{heat} \ge 96.0^\circ\text{C}
+  - Balance Limitation: flush_d.exe has a 0.5-second processing delay. If heat
+    spikes faster than the cooling system can stabilize during the channel, a
+    crash can still occur.
+
+3. Overclock Optimizer (governor_d.exe)
+
+  - Unlocked: Level 40
+  - RAM Allocation Overhead: Consumes 128 MB of RAM.
+  - Behavior: Dynamically modulates active process speed. It throttles daemon
+    activity when heat exceeds 97.0°C and accelerates execution to maximum speed
+    when heat drops below 86.0°C to stay within the Thermal Surge window.
+
+10. Daily Retention Features
+
+1. Consecutive Diagnostic Logs (Daily Login Matrix)
+
+Resets after 24 hours of inactivity. Scaled to current Lifetime Banked Bytes to
+ensure rewards stay relevant across levels:
+
+  - Day 1: 5 Minutes of 1.5x Byte Generation Surge Boost.
+  - Day 2: Banked Bytes equal to
+    10 \times \text{RequiredXP}(\text{Current Level}).
+  - Day 3: 50 Q-Bits (Instantly usable in Root Tree).
+  - Day 4: Exclusive OS Shell Cosmetic: Amber Monochrome Phosphor CRT.
+  - Day 5: 15 Minutes of "Zero Thermal Cost" Overclocking.
+  - Day 6: 150 Q-Bits.
+  - Day 7: Rare System Sound Pack (Vintage Mechanical IBM Model M Clacks) +
+    Permanent +5% Base Cooling Efficiency.
+
+2. Daily Kernel Bounties (Rotational Quests)
+
+Three bounties cycle every 24 hours. Designed to encourage risky mechanical
+play:
+
++---------------------------+----------------------------------------------+------------------------+
+| BOUNTY NAME               | OBJECTIVE CONDITION                          | REWARD                 |
++---------------------------+----------------------------------------------+------------------------+
+| "Riding the Lightning"    | Remain within Thermal Surge (85°C–99.9°C) for | 500 Banked Bytes x     |
+|                           | 120 seconds cumulative without crashing      | Current Level          |
++---------------------------+----------------------------------------------+------------------------+
+| "Precision Exhaust"       | Execute 15 successful Flushes with heat      | 25 Q-Bits              |
+|                           | strictly above 95.0°C                        |                        |
++---------------------------+----------------------------------------------+------------------------+
+| "Stress Test Complete"    | Trigger 3 BSODs, then reach your current     | 1 Hour 2x XP Multiplier|
+|                           | RAM cap within 60 seconds of rebooting       |                        |
++---------------------------+----------------------------------------------+------------------------+
+
+11. Achievement System
+
+Achievements award permanent account badges, unique desktop decorations, and
+static performance buffs.
+
++---------------------------------------------------------------------------------------------------+
+| LIFETIME SYSTEM ACHIEVEMENTS                                                                      |
++-------------------+---------------------------------------------+---------------------------------+
+| CODENAME          | UNLOCK CONDITION                            | PERMANENT SYSTEM REWARD         |
++-------------------+---------------------------------------------+---------------------------------+
+| First Smoke       | Trigger your first 100.0°C BSOD             | Title: "Faulty Capacitor"       |
+| Living on Edge    | Flush Cache successfully at 99.5°C or higher| +1.0% Global Thermal Multiplier |
+| Clean Register    | Bank 1,000,000 Bytes in a single Flush      | +5% Bus Payout Dividend         |
+| Sub-Zero Maestro  | Dissipate 75°C of heat in under 2.0 seconds | +2.0°C/sec Base Passive Cooling |
+| Deep Kernel Walk  | Execute your first Kernel Reset             | Shell: "Midnight Matrix Dark"   |
+| Silicon God       | Reach OS Level 100                          | Shell: "Holographic Aurora OS"  |
++-------------------+---------------------------------------------+---------------------------------+
+
+12. Monetization Blueprint
+
+Monetization in DepthOS avoids predatory pay-to-win locks. Instead, it monetizes
+convenience, cosmetic style, and high-tension safety valves.
+
+1. Premium Gamepasses
+
++-------------------------+-----------+-------------------------------------------------------------+
+| GAMEPASS NAME           | PRICE     | FUNCTIONAL VALUE PROPOSITION                                |
++-------------------------+-----------+-------------------------------------------------------------+
+| Liquid Nitrogen Reserve | 499 R$    | Adds a manual "Emergency Vent" button (Spacebar + E).       |
+|                         |           | Instantly dumps heat to 25.0°C. 60-second cooldown.        |
++-------------------------+-----------+-------------------------------------------------------------+
+| Dual-Channel Bus Hub    | 399 R$    | Permanent -50% Flush Channel Duration.                      |
++-------------------------+-----------+-------------------------------------------------------------+
+| Background Daemon Suite | 599 R$    | Adds +2 Daemon program slots to the motherboard.            |
++-------------------------+-----------+-------------------------------------------------------------+
+| Sound Designer Pack     | 199 R$    | Unlocks 8 retro terminal typing soundsets (Clicky, Tape).   |
++-------------------------+-----------+-------------------------------------------------------------+
+| VIP Architecture Case   | 299 R$    | Sleek brushed obsidian PC chassis with dynamic RGB lighting |
+|                         |           | visible on your desk; +10% Lifetime XP gain.               |
++-------------------------+-----------+-------------------------------------------------------------+
+
+2. Developer Products (Consumables)
+
++-------------------------+-----------+-------------------------------------------------------------+
+| PRODUCT NAME            | PRICE     | FUNCTIONAL EFFECT                                           |
++-------------------------+-----------+-------------------------------------------------------------+
+| Instant Core Reboot     | 49 R$     | Instantly clears a 5-second BSOD lock and restores 100% of  |
+|                         |           | the volatile bytes lost in that crash.                      |
++-------------------------+-----------+-------------------------------------------------------------+
+| Thermal Overcharge Gel  | 99 R$     | Freezes heat at 90.0°C for 2 continuous minutes. Allows     |
+|                         |           | uninterrupted execution within the Thermal Surge window.    |
++-------------------------+-----------+-------------------------------------------------------------+
+| Quantum Bit Injector    | 249 R$    | Grants 50 Q-Bits immediately without performing a reset.   |
++-------------------------+-----------+-------------------------------------------------------------+
+
+13. UI Layout Specification
+
+The viewport is locked in a static, diegetic first-person frame directly facing
+a sleek, futuristic CRT/OLED workspace.
+
++---------------------------------------------------------------------------------------------------+
+| TOP STATUS BAR (System Time | OS Version: v12.4 | Network Ping: 12ms | [SETTINGS] [HELP] [MUTE] ) |
++---------------------------------------------------------------------------------------------------+
+|                                                                                                   |
+|  LEFT PANEL: SYSTEM VITALS               CENTER STAGE: WORKLOAD MONITOR      RIGHT PANEL: UPGRADE |
+|  +----------------------------------+   +-------------------------------+   +-------------------+ |
+|  | THERMAL MONITOR                  |   |                               |   | HARDWARE SHOP     | |
+|  | [=========== 92.4°C ===========] |   |       [ PROCESS WORKLOAD ]    |   |                   | |
+|  | >>> THERMAL SURGE (4.2x) <<<     |   |                               |   | > CPU Architecture| |
+|  |                                  |   |   Hold [SPACE] or Click Fast  |   |   Level: 14       | |
+|  | RAM BUFFER ALLOCATION            |   |                               |   |   Cost: 1,450 B   | |
+|  | [============= 84% ============] |   +-------------------------------+   |                   | |
+|  | 430 MB / 512 MB Used             |                                       | > RAM Sticks      | |
+|  +----------------------------------+   +-------------------------------+   |   Level: 8        | |
+|                                         |       [ FLUSH CACHE ]         |   |   Cost: 820 B     | |
+|  ACTIVE DAEMON MONITORS                 |   |                               |   |                   | |
+|  • miner_d.exe (RUNNING - 2.0 c/s)      |   |        Hold [F] to Bank       |   | > Chassis Cooling | |
+|  • flush_d.exe (STANDBY - 96°C Lim)     |   |       Time Required: 0.6s     |   |   Level: 11       | |
+|  • [EMPTY SLOT]                         |   +-------------------------------+   |   Cost: 1,640 B   | |
+|                                                                             |                   | |
++-----------------------------------------------------------------------------+-------------------+ |
+| BOTTOM FOOTER DOCK                                                                                |
+| [TERMINAL]     [HARDWARE SHOP]     [DAEMONS]     [ROOT ARCHITECTURE]     BANKED: 142,500 BYTES    |
++---------------------------------------------------------------------------------------------------+
+
+14. Complete Roblox Screen Hierarchy
+
+Built inside StarterGui:
+
+StarterGui/
+├── DepthOS_Master/
+│   ├── ResetOnSpawn: false
+│   ├── ZIndexBehavior: Sibling
+│   │
+│   ├── DesktopBackground/
+│   │   ├── Type: ImageLabel (Tiled scanlines, dynamic glitch overlay)
+│   │   └── CRT_ShaderVignette: ImageLabel
+│   │
+│   ├── TopStatusBar/
+│   │   ├── Frame
+│   │   ├── OSVersionLabel: TextLabel
+│   │   ├── LevelProgressBar: Frame
+│   │   │   └── Fill: Frame
+│   │   └── PerformanceStats: TextLabel
+│   │
+│   ├── MainWorkspace/
+│   │   ├── Type: Frame (AnchorPoint: 0.5, 0.5; Position: 0.5, 0, 0.5, 0)
+│   │   │
+│   │   ├── LeftVitalsPanel/
+│   │   │   ├── HeatGauge/
+│   │   │   │   ├── BarContainer: Frame
+│   │   │   │   ├── BarFill: Frame (UIGradient: Green -> Amber -> Crimson)
+│   │   │   │   ├── TempValueLabel: TextLabel
+│   │   │   │   └── SurgeIndicatorText: TextLabel
+│   │   │   ├── RAMGauge/
+│   │   │   │   ├── BarContainer: Frame
+│   │   │   │   ├── BarFill: Frame (UIGradient: Cyan -> Purple)
+│   │   │   │   └── RAMValueLabel: TextLabel
+│   │   │   └── DaemonStatusContainer/
+│   │   │       ├── UIListLayout
+│   │   │       └── SlotTemplate: Frame (x4)
+│   │   │
+│   │   ├── CenterInteractionViewport/
+│   │   │   ├── ProcessButton: ImageButton (With spring-physics press animation)
+│   │   │   │   ├── ButtonLabel: TextLabel
+│   │   │   │   └── VolatileBytesCounter: TextLabel
+│   │   │   ├── FlushButton: ImageButton
+│   │   │   │   ├── ProgressBar: Frame
+│   │   │   │   └── FlushLabel: TextLabel
+│   │   │   └── DangerVignetteOverlay: ImageLabel (Alpha bound directly to Heat)
+│   │   │
+│   │   └── RightShopPanel/
+│   │       ├── ScrollingFrame (CanvasSize: Vector2.new(0, 800))
+│   │       ├── UIListLayout
+│   │       ├── UpgradeItem_CPU: Frame
+│   │       ├── UpgradeItem_RAM: Frame
+│   │       ├── UpgradeItem_Cooling: Frame
+│   │       ├── UpgradeItem_Bus: Frame
+│   │       └── UpgradeItem_Paste: Frame
+│   │
+│   ├── BSOD_Screen/
+│   │   ├── Type: Frame (Visible = false; BackgroundColor3: 0, 0, 170; ZIndex: 50)
+│   │   ├── SadFaceLabel: TextLabel (":(")
+│   │   ├── ErrorCodeText: TextLabel ("CRITICAL_PROCESS_DIED: SYSTEM OVERHEAT 100°C")
+│   │   └── CountdownBar: Frame
+│   │
+│   └── AudioHub/
+│       ├── MechanicalClickSound: Sound
+│       ├── FanHumLoopSound: Sound (Pitch mapped from 0.8 to 2.4 based on Heat)
+│       ├── SurgeAlarmSound: Sound (Looping alarm with volume mapped to Surge)
+│       ├── FlushCompleteSound: Sound
+│       └── BSODCrashSound: Sound
+
+15. DataStore Schema (Production Schema)
+
+Using ProfileService or clean DataStoreService wrappers:
+
+local DepthOSProfileTemplate = {
+    SchemaVersion = 1,
+    FirstJoinTimestamp = 0,
+    LastSaveTimestamp = 0,
+
+    -- Financial Registers
+    BankedBytes = 0,
+    LifetimeBankedBytes = 0,
+    QuantumBits = 0,
+
+    -- Progression State
+    OSLevel = 1,
+    CurrentXP = 0,
+    PrestigeCount = 0,
+
+    -- Hardware Upgrade Component Levels
+    Hardware = {
+        CPU_Level = 1,
+        RAM_Level = 1,
+        Cooling_Level = 1,
+        Bus_Level = 1,
+        ThermalPaste_Level = 0,
+    },
+
+    -- Installed Daemon Threads
+    Daemons = {
+        Slot1_App = "miner_d.exe", -- Default starter daemon
+        Slot2_App = "none",
+        Slot3_App = "none",
+        Slot4_App = "none",
+    },
+
+    -- Root Prestige Tree Node Allocations
+    RootTree = {
+        SuperconductorBus = 0, -- Levels 0 to 5
+        CryogenicSubstrate = 0,
+        NonVolatileRegisters = 0,
+        SurgeDriftExploiter = false,
+    },
+
+    -- Retention & Behavioral Metadata
+    Analytics = {
+        TotalCrashes = 0,
+        SuccessfulFlushes = 0,
+        MaxSurgeDuration = 0.0,
+        ConsecutiveLoginDays = 1,
+    },
+
+    -- Cosmetics & Gamepasses
+    Settings = {
+        ActiveTheme = "DefaultGreen",
+        KeyboardSoundpack = "DefaultCherry",
+    }
+}
+
+16. MVP Version (What to Launch First)
+
+To ship in 14 days and test retention viability, cut everything outside the core
+loop:
+
+  - Included Systems (Strictly 7):
+    1.  Process Button (Single button click with mechanical sounds).
+    2.  Heat Engine (Linear heat increase, baseline passive cooling, BSOD
+        at 100°C).
+    3.  RAM Allocator (Allocates memory; halts input when max is reached).
+    4.  Flush Button (Hold to transfer volatile to banked currency).
+    5.  Thermal Surge (Static 3x multiplier when heat is between 85°C
+        and 99.9°C).
+    6.  Basic Shop (3 Upgrades: CPU, RAM, Cooling).
+    7.  Local DataStore saving BankedBytes and hardware levels.
+  - Excluded from MVP:
+      - No Kernel Resets (Prestige).
+      - No Automation Daemons.
+      - No Monetization or Gamepasses.
+      - No Achievements.
+
+17. Version 2 Roadmap (Scale & Retention)
+
+Implement after the core loop demonstrates a Day-1 Retention > 35%:
+
+1.  Kernel Architecture (Prestige Engine): Implement the full Quantum Root Tree
+    to give players a long-term progression path beyond Level 10.
+2.  First Daemon Batch: Launch miner_d.exe and flush_d.exe to enable semi-idle
+    operational builds.
+3.  Monetization Layer: Add the Liquid Nitrogen Reserve, Sound Designer Pack,
+    and Core Reboot products.
+4.  Enhanced Feedback: Add CRT shader adjustments, screen-glitch dynamics on
+    high heat, and reactive mechanical audio.
+5.  Daily Bounty Terminal: Deliver daily rotational missions to drive 7-day
+    retention.
+
+18. Version 3 Roadmap (Endgame Depth)
+
+Implement when the game reaches sustainable concurrent players and healthy
+monetization:
+
+1.  Motherboard Modular Overhauls: Introduce swappable component chassis with
+    socket configurations (e.g., Dual-CPU builds that double throughput but
+    generate extreme heat).
+2.  Sub-Zero Cryo Loops: Introduce late-game cooling loops with custom coolant
+    fluid management.
+3.  Kernel Hardcore Mode: An opt-in difficulty mode where a BSOD corrupts a tier
+    of hardware components in exchange for a permanent 5x Q-Bit yield
+    multiplier.
+4.  Custom Audio Soundboards: Let players assemble and sequence their own
+    mechanical keystroke audio engines.
+5.  The Singularity OS Project: A massive, end-game communal byte sink unlocking
+    the final Prestige Tier 100 hardware suite.

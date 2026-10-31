@@ -1,0 +1,6 @@
+{
+  "name": "DepthOS: Thermal Redline Systems Simulator",
+  "description": "An authentic 3D Roblox-style systems simulator where you push silicon to the redline in Thermal Surge, avert BSOD crashes, and harvest Quantum Bits.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

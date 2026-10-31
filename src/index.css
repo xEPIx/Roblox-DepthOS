@@ -1,0 +1,29 @@
+@import "tailwindcss";
+
+@keyframes affordableGlow {
+  0%, 100% {
+    box-shadow: 0 0 6px rgba(52, 211, 153, 0.4);
+    border-color: rgba(52, 211, 153, 0.6);
+  }
+  50% {
+    box-shadow: 0 0 18px rgba(52, 211, 153, 0.95);
+    border-color: rgba(110, 231, 183, 1);
+  }
+}
+
+@keyframes robloxPulse {
+  0%, 100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.02);
+  }
+}
+
+.affordable-pulse {
+  animation: affordableGlow 1.6s infinite ease-in-out, robloxPulse 1.6s infinite ease-in-out;
+}
+
+.affordable-glow-subtle {
+  animation: affordableGlow 2s infinite ease-in-out;
+}

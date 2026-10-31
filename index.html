@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>DepthOS: Thermal Redline Systems Simulator</title>
+    <meta name="description" content="An authentic 3D Roblox-style systems simulator where you push silicon to the redline in Thermal Surge, avert BSOD crashes, and harvest Quantum Bits." />
+    <meta property="og:title" content="DepthOS: Thermal Redline Systems Simulator" />
+    <meta property="og:description" content="An authentic 3D Roblox-style systems simulator where you push silicon to the redline in Thermal Surge, avert BSOD crashes, and harvest Quantum Bits." />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <script>
+      // Defensive fix for extensions and test runners trying to set window.fetch
+      try {
+        let _customFetch = window.fetch;
+        Object.defineProperty(window, 'fetch', {
+          configurable: true,
+          enumerable: true,
+          get() {
+            return _customFetch;
+          },
+          set(fn) {
+            _customFetch = fn;
+          }
+        });
+      } catch (e) {
+        // Fallback if property definition is restricted
+      }
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+
