@@ -303,3 +303,69 @@ export function createBloxyColaTexture(): THREE.CanvasTexture {
   texture.colorSpace = THREE.SRGBColorSpace;
   return texture;
 }
+
+export function createKeypressShockwaveTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 256;
+  canvas.height = 256;
+  const ctx = canvas.getContext('2d')!;
+  ctx.clearRect(0, 0, 256, 256);
+
+  const center = 128;
+  const grad = ctx.createRadialGradient(center, center, 10, center, center, 120);
+  grad.addColorStop(0, 'rgba(255, 255, 255, 0)');
+  grad.addColorStop(0.25, 'rgba(0, 240, 255, 0.15)');
+  grad.addColorStop(0.65, 'rgba(0, 240, 255, 0.85)');
+  grad.addColorStop(0.8, 'rgba(255, 255, 255, 1)');
+  grad.addColorStop(0.9, 'rgba(0, 240, 255, 0.9)');
+  grad.addColorStop(1, 'rgba(0, 240, 255, 0)');
+
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.arc(center, center, 120, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Subtle outer edge stroke
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.arc(center, center, 96, 0, Math.PI * 2);
+  ctx.stroke();
+
+  // Inner accent ring
+  ctx.strokeStyle = 'rgba(0, 240, 255, 0.7)';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(center, center, 72, 0, Math.PI * 2);
+  ctx.stroke();
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
+
+export function createHeatVaporTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 128;
+  canvas.height = 128;
+  const ctx = canvas.getContext('2d')!;
+  ctx.clearRect(0, 0, 128, 128);
+
+  const center = 64;
+  const grad = ctx.createRadialGradient(center, center, 2, center, center, 60);
+  grad.addColorStop(0, 'rgba(255, 255, 255, 0.95)');
+  grad.addColorStop(0.2, 'rgba(180, 245, 255, 0.85)');
+  grad.addColorStop(0.5, 'rgba(70, 210, 255, 0.4)');
+  grad.addColorStop(0.8, 'rgba(0, 160, 255, 0.12)');
+  grad.addColorStop(1, 'rgba(0, 100, 255, 0)');
+
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.arc(center, center, 60, 0, Math.PI * 2);
+  ctx.fill();
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
+

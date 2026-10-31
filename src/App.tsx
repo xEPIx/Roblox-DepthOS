@@ -40,6 +40,8 @@ import { PlayerProfileModal } from './components/PlayerProfileModal';
 import { SingularityProjectModal } from './components/SingularityProjectModal';
 import { SelectionModal } from './components/SelectionModal';
 import { TutorialModal } from './components/TutorialModal';
+import { ThermalGrainOverlay } from './components/ThermalGrainOverlay';
+import { ThermalWarningOverlay } from './components/ThermalWarningOverlay';
 
 export default function App() {
   const [gameState, setGameState] = useState<'title' | 'playing'>('title');
@@ -68,27 +70,33 @@ export default function App() {
   const stateRef = useRef<DepthOSState>(depthState);
   stateRef.current = depthState;
 
-  // Mount Three.js 3D battlestation once with 3D raycast selection
+  // Mount Three.js 3D battlestation once with 3D raycast selection & resilient fallback
   useEffect(() => {
     if (!threeMountRef.current) return;
-    const sceneCtrl = createDepthOSThreeScene(threeMountRef.current, (part) => {
-      if (part === 'keyboard') {
-        handleProcessClick();
-      } else if (part === 'monitor') {
-        handleSelectCameraPreset('monitor');
-      } else if (part === 'cpu') {
-        handlePurchaseUpgrade('cpu');
-      } else if (part === 'ram') {
-        handlePurchaseUpgrade('ram');
-      } else if (part === 'cooling') {
-        handlePurchaseUpgrade('cooling');
-      }
-    });
-    sceneCtrlRef.current = sceneCtrl;
+    try {
+      const sceneCtrl = createDepthOSThreeScene(threeMountRef.current, (part) => {
+        if (part === 'keyboard') {
+          handleProcessClick();
+        } else if (part === 'monitor') {
+          handleSelectCameraPreset('monitor');
+        } else if (part === 'cpu') {
+          handlePurchaseUpgrade('cpu');
+        } else if (part === 'ram') {
+          handlePurchaseUpgrade('ram');
+        } else if (part === 'cooling') {
+          handlePurchaseUpgrade('cooling');
+        }
+      });
+      sceneCtrlRef.current = sceneCtrl;
+    } catch (e) {
+      console.warn('Scene controller initialization fallback caught:', e);
+    }
 
     return () => {
-      sceneCtrl.dispose();
-      sceneCtrlRef.current = null;
+      if (sceneCtrlRef.current) {
+        sceneCtrlRef.current.dispose();
+        sceneCtrlRef.current = null;
+      }
     };
   }, []);
 
@@ -187,7 +195,7 @@ export default function App() {
     audio.playProcessClick(s.soundpack, isCritical);
 
     if (sceneCtrlRef.current) {
-      sceneCtrlRef.current.triggerPressVisual();
+      sceneCtrlRef.current.triggerPressVisual(isCritical);
     }
 
     if (s.ramUsedMB + ramCost > s.ramMaxMB) {
@@ -695,6 +703,12 @@ export default function App() {
     <div className="relative w-screen h-screen overflow-hidden bg-black text-white select-none">
       {/* 3D WebGL Canvas Mount Container */}
       <div ref={threeMountRef} className="absolute inset-0 z-0" />
+
+      {/* Procedural High-Frequency Thermal Grain Overlay (Scales with CPU Temp) */}
+      <ThermalGrainOverlay heat={depthState.heat} isBSOD={depthState.isBSOD} />
+
+      {/* High-Contrast THERMAL WARNING Overlay (Flashes above 85% with increasing frequency) */}
+      <ThermalWarningOverlay heat={depthState.heat} isBSOD={depthState.isBSOD} />
 
       {/* Rare System Event Notification Banner */}
       {depthState.activeEvent && <EventNotificationBanner event={depthState.activeEvent} />}

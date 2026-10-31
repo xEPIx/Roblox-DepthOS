@@ -28,6 +28,7 @@ import {
   FlameIllustration,
   MemoryIllustration,
 } from './RobloxIcons';
+import { ThermalEfficiencyGraph } from './ThermalEfficiencyGraph';
 
 interface DepthOSDesktopProps {
   state: DepthOSState;
@@ -169,10 +170,17 @@ export const DepthOSDesktop: React.FC<DepthOSDesktopProps> = ({
     <div
       className={`relative w-full h-full flex flex-col font-sans select-none overflow-hidden transition-colors duration-300 ${
         is3DFullscreen ? 'bg-transparent pointer-events-none' : 'bg-[#12141c]'
-      }`}
+      } ${inSurge ? 'surge-shake' : ''}`}
     >
+      {/* High-Stakes Thermal Surge Red-Vignette Flash */}
+      {inSurge && (
+        <div
+          className="surge-vignette absolute inset-0 pointer-events-none z-30 transition-opacity duration-150 border-4 border-red-500/60"
+        />
+      )}
+
       {/* Thermal Danger Overlay */}
-      {dangerAlpha > 0 && (
+      {dangerAlpha > 0 && !inSurge && (
         <div
           className="absolute inset-0 pointer-events-none z-20 transition-opacity duration-100"
           style={{
@@ -351,8 +359,31 @@ export const DepthOSDesktop: React.FC<DepthOSDesktopProps> = ({
                     NOMINAL 1.0x • SURGE AT {surgeThreshold.toFixed(0)}°C
                   </div>
                 )}
+
+                {/* Overworked Silicon Thermal Noise Telemetry */}
+                {state.heat >= 55.0 && (
+                  <div className="mt-1.5 pt-1.5 border-t border-white/10 flex items-center justify-between text-[10px] font-mono">
+                    <span className="text-gray-400 flex items-center gap-1">
+                      <span className={`w-1.5 h-1.5 rounded-full ${state.heat >= 85 ? 'bg-red-400 animate-ping' : 'bg-amber-400'}`} />
+                      SILICON NOISE
+                    </span>
+                    <span className={state.heat >= 85 ? 'text-red-300 font-black tracking-wider' : 'text-amber-300 font-bold'}>
+                      {Math.min(100, Math.pow(Math.max(0, (state.heat - 30) / 70), 1.55) * 100).toFixed(0)}% JITTER
+                    </span>
+                  </div>
+                )}
               </div>
             </div>
+
+            {/* REAL-TIME THERMAL EFFICIENCY GRAPH (Recharts) */}
+            <ThermalEfficiencyGraph
+              heat={state.heat}
+              cpuLevel={state.hardware.cpuLevel}
+              isBSOD={state.isBSOD}
+              isFlushing={state.isFlushing}
+              surgeThreshold={surgeThreshold}
+              inSurge={inSurge}
+            />
 
             {/* RAM BUFFER GAUGE */}
             <div className="p-3 rounded-xl bg-[#141620] border border-[#262c3d] space-y-2">
@@ -546,7 +577,7 @@ export const DepthOSDesktop: React.FC<DepthOSDesktopProps> = ({
         </div>
 
         {/* RIGHT COLUMN: HARDWARE UPGRADE SHOP (col-span-4) */}
-        <div className="lg:col-span-4 flex flex-col gap-3 p-3.5 rounded-2xl border border-[#2b3347] bg-[#1a1d28]/95 shadow-md">
+        <div className="lg:col-span-4 flex flex-col gap-2.5 p-3.5 rounded-2xl border border-[#2b3347] bg-[#1a1d28]/95 shadow-md">
           {/* Shop Header */}
           <div className="flex items-center justify-between border-b border-[#2c3347] pb-2">
             <span className="text-xs font-black tracking-wider text-gray-300 uppercase">
@@ -558,196 +589,261 @@ export const DepthOSDesktop: React.FC<DepthOSDesktopProps> = ({
             </div>
           </div>
 
+          {/* Multi-Buy Multiplier Pill Bar */}
+          <div className="flex items-center gap-1 bg-[#12151f] p-1 rounded-xl border border-[#2b3347]">
+            {(['1', '5', '10', 'next_milestone', 'max'] as const).map((m) => {
+              const isSelected =
+                m === '1'
+                  ? buyMultiplier === 1
+                  : m === '5'
+                  ? buyMultiplier === 5
+                  : m === '10'
+                  ? buyMultiplier === 10
+                  : buyMultiplier === m;
+              const label =
+                m === '1'
+                  ? '1x'
+                  : m === '5'
+                  ? '5x'
+                  : m === '10'
+                  ? '10x'
+                  : m === 'next_milestone'
+                  ? 'NEXT'
+                  : 'MAX';
+              return (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => {
+                    const val = m === '1' ? 1 : m === '5' ? 5 : m === '10' ? 10 : m;
+                    setBuyMultiplier(val as BuyMultiplier);
+                  }}
+                  className={`flex-1 py-1 rounded-lg text-[10px] font-black tracking-wide transition-all ${
+                    isSelected
+                      ? 'bg-gradient-to-b from-[#00b06f] to-[#00965e] text-white shadow-[0_2px_0_#006b42]'
+                      : 'text-gray-400 hover:text-gray-200 hover:bg-[#1f2433]'
+                  }`}
+                >
+                  {label}
+                </button>
+              );
+            })}
+          </div>
+
           {/* Upgrade Cards List */}
-          <div className="flex-1 overflow-y-auto space-y-2.5 pr-1">
+          <div className="flex-1 overflow-y-auto space-y-2 pr-1">
             {/* 1. CPU Clock Card */}
             <div
-              className={`p-3 rounded-xl border transition-all flex items-center justify-between gap-3 ${
-                isCpuAffordable
+              className={`p-2.5 rounded-xl border transition-all flex items-center justify-between gap-2.5 min-h-[66px] ${
+                cpuUpgrade.affordable && cpuUpgrade.levels > 0
                   ? 'affordable-pulse border-emerald-400/90 bg-emerald-950/30'
                   : 'border-[#2b3347] bg-[#141620]'
               }`}
             >
-              <div className="flex items-center gap-2.5 min-w-0">
-                <CpuIllustration className="w-9 h-9 flex-shrink-0" />
-                <div className="min-w-0">
-                  <div className="flex items-center gap-1.5">
+              <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                <div className="w-10 h-10 flex-shrink-0 rounded-lg bg-[#0d0f17] border border-[#262c3d] flex items-center justify-center p-1.5">
+                  <CpuIllustration className="w-full h-full" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-1.5 flex-wrap">
                     <span className="text-xs font-black text-white truncate">CPU Clock</span>
-                    <span className="text-[10px] bg-[#242938] px-1.5 py-0.2 rounded font-bold text-cyan-300">
+                    <span className="text-[10px] bg-[#242938] px-1.5 py-0.5 rounded font-bold text-cyan-300">
                       Lvl {state.hardware.cpuLevel}
+                      {cpuUpgrade.levels > 1 && (
+                        <span className="text-emerald-400 font-bold ml-1">+{cpuUpgrade.levels}</span>
+                      )}
                     </span>
                   </div>
-                  <div className="text-[11px] font-bold text-emerald-400">
-                    +2 B/clk
+                  <div className="text-[11px] font-bold text-emerald-400 truncate mt-0.5">
+                    +{2 * Math.max(1, cpuUpgrade.levels)} B/clk
                   </div>
                 </div>
               </div>
 
               <button
-                disabled={!isCpuAffordable}
-                onClick={() => onPurchaseUpgrade('cpu')}
-                className={`px-3 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 transition-all whitespace-nowrap ${
-                  isCpuAffordable
-                    ? 'bg-[#00b06f] hover:bg-[#00c67d] text-white shadow-[0_4px_0_#007a4d] active:translate-y-1 active:shadow-none'
-                    : 'bg-[#242938] text-gray-500 border border-[#333b50] cursor-not-allowed'
+                disabled={!cpuUpgrade.affordable || cpuUpgrade.levels === 0}
+                onClick={() => onPurchaseUpgrade('cpu', cpuUpgrade.levels)}
+                className={`w-[105px] h-[38px] flex-shrink-0 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 transition-all select-none ${
+                  cpuUpgrade.affordable && cpuUpgrade.levels > 0
+                    ? 'bg-[#00b06f] hover:bg-[#00c67d] text-white shadow-[0_4px_0_#007a4d] active:translate-y-1 active:shadow-none cursor-pointer'
+                    : 'bg-[#242938] text-gray-500 border border-[#333b50] cursor-not-allowed shadow-none'
                 }`}
               >
-                <RobuxIcon className="w-3.5 h-3.5" />
-                <span>{cpuCost.toLocaleString()}</span>
+                <RobuxIcon className="w-3.5 h-3.5 flex-shrink-0" />
+                <span className="truncate">{cpuUpgrade.totalCost.toLocaleString()}</span>
               </button>
             </div>
 
             {/* 2. RAM Stick Card */}
             <div
-              className={`p-3 rounded-xl border transition-all flex items-center justify-between gap-3 ${
-                isRamAffordable
+              className={`p-2.5 rounded-xl border transition-all flex items-center justify-between gap-2.5 min-h-[66px] ${
+                ramUpgrade.affordable && ramUpgrade.levels > 0
                   ? 'affordable-pulse border-emerald-400/90 bg-emerald-950/30'
                   : 'border-[#2b3347] bg-[#141620]'
               }`}
             >
-              <div className="flex items-center gap-2.5 min-w-0">
-                <RamIllustration className="w-9 h-9 flex-shrink-0" />
-                <div className="min-w-0">
-                  <div className="flex items-center gap-1.5">
+              <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                <div className="w-10 h-10 flex-shrink-0 rounded-lg bg-[#0d0f17] border border-[#262c3d] flex items-center justify-center p-1.5">
+                  <RamIllustration className="w-full h-full" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-1.5 flex-wrap">
                     <span className="text-xs font-black text-white truncate">RAM Buffer</span>
-                    <span className="text-[10px] bg-[#242938] px-1.5 py-0.2 rounded font-bold text-purple-300">
+                    <span className="text-[10px] bg-[#242938] px-1.5 py-0.5 rounded font-bold text-purple-300">
                       Lvl {state.hardware.ramLevel}
+                      {ramUpgrade.levels > 1 && (
+                        <span className="text-purple-400 font-bold ml-1">+{ramUpgrade.levels}</span>
+                      )}
                     </span>
                   </div>
-                  <div className="text-[11px] font-bold text-purple-400">
-                    +64 MB Max
+                  <div className="text-[11px] font-bold text-purple-400 truncate mt-0.5">
+                    +{64 * Math.max(1, ramUpgrade.levels)} MB Max
                   </div>
                 </div>
               </div>
 
               <button
-                disabled={!isRamAffordable}
-                onClick={() => onPurchaseUpgrade('ram')}
-                className={`px-3 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 transition-all whitespace-nowrap ${
-                  isRamAffordable
-                    ? 'bg-[#00b06f] hover:bg-[#00c67d] text-white shadow-[0_4px_0_#007a4d] active:translate-y-1 active:shadow-none'
-                    : 'bg-[#242938] text-gray-500 border border-[#333b50] cursor-not-allowed'
+                disabled={!ramUpgrade.affordable || ramUpgrade.levels === 0}
+                onClick={() => onPurchaseUpgrade('ram', ramUpgrade.levels)}
+                className={`w-[105px] h-[38px] flex-shrink-0 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 transition-all select-none ${
+                  ramUpgrade.affordable && ramUpgrade.levels > 0
+                    ? 'bg-[#00b06f] hover:bg-[#00c67d] text-white shadow-[0_4px_0_#007a4d] active:translate-y-1 active:shadow-none cursor-pointer'
+                    : 'bg-[#242938] text-gray-500 border border-[#333b50] cursor-not-allowed shadow-none'
                 }`}
               >
-                <RobuxIcon className="w-3.5 h-3.5" />
-                <span>{ramCost.toLocaleString()}</span>
+                <RobuxIcon className="w-3.5 h-3.5 flex-shrink-0" />
+                <span className="truncate">{ramUpgrade.totalCost.toLocaleString()}</span>
               </button>
             </div>
 
             {/* 3. Chassis Cooling Fan Card */}
             <div
-              className={`p-3 rounded-xl border transition-all flex items-center justify-between gap-3 ${
-                isCoolingAffordable
+              className={`p-2.5 rounded-xl border transition-all flex items-center justify-between gap-2.5 min-h-[66px] ${
+                coolingUpgrade.affordable && coolingUpgrade.levels > 0
                   ? 'affordable-pulse border-emerald-400/90 bg-emerald-950/30'
                   : 'border-[#2b3347] bg-[#141620]'
               }`}
             >
-              <div className="flex items-center gap-2.5 min-w-0">
-                <CoolerIllustration className="w-9 h-9 flex-shrink-0" />
-                <div className="min-w-0">
-                  <div className="flex items-center gap-1.5">
+              <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                <div className="w-10 h-10 flex-shrink-0 rounded-lg bg-[#0d0f17] border border-[#262c3d] flex items-center justify-center p-1.5">
+                  <CoolerIllustration className="w-full h-full" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-1.5 flex-wrap">
                     <span className="text-xs font-black text-white truncate">Chassis Fan</span>
-                    <span className="text-[10px] bg-[#242938] px-1.5 py-0.2 rounded font-bold text-blue-300">
+                    <span className="text-[10px] bg-[#242938] px-1.5 py-0.5 rounded font-bold text-blue-300">
                       Lvl {state.hardware.coolingLevel}
+                      {coolingUpgrade.levels > 1 && (
+                        <span className="text-sky-400 font-bold ml-1">+{coolingUpgrade.levels}</span>
+                      )}
                     </span>
                   </div>
-                  <div className="text-[11px] font-bold text-sky-400">
-                    +1.8°/s Cool
+                  <div className="text-[11px] font-bold text-sky-400 truncate mt-0.5">
+                    +{(1.8 * Math.max(1, coolingUpgrade.levels)).toFixed(1)}°/s Cool
                   </div>
                 </div>
               </div>
 
               <button
-                disabled={!isCoolingAffordable}
-                onClick={() => onPurchaseUpgrade('cooling')}
-                className={`px-3 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 transition-all whitespace-nowrap ${
-                  isCoolingAffordable
-                    ? 'bg-[#00b06f] hover:bg-[#00c67d] text-white shadow-[0_4px_0_#007a4d] active:translate-y-1 active:shadow-none'
-                    : 'bg-[#242938] text-gray-500 border border-[#333b50] cursor-not-allowed'
+                disabled={!coolingUpgrade.affordable || coolingUpgrade.levels === 0}
+                onClick={() => onPurchaseUpgrade('cooling', coolingUpgrade.levels)}
+                className={`w-[105px] h-[38px] flex-shrink-0 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 transition-all select-none ${
+                  coolingUpgrade.affordable && coolingUpgrade.levels > 0
+                    ? 'bg-[#00b06f] hover:bg-[#00c67d] text-white shadow-[0_4px_0_#007a4d] active:translate-y-1 active:shadow-none cursor-pointer'
+                    : 'bg-[#242938] text-gray-500 border border-[#333b50] cursor-not-allowed shadow-none'
                 }`}
               >
-                <RobuxIcon className="w-3.5 h-3.5" />
-                <span>{coolingCost.toLocaleString()}</span>
+                <RobuxIcon className="w-3.5 h-3.5 flex-shrink-0" />
+                <span className="truncate">{coolingUpgrade.totalCost.toLocaleString()}</span>
               </button>
             </div>
 
             {/* 4. Bus Ribbon Buffer Card */}
             <div
-              className={`p-3 rounded-xl border transition-all flex items-center justify-between gap-3 ${
-                isBusAffordable
+              className={`p-2.5 rounded-xl border transition-all flex items-center justify-between gap-2.5 min-h-[66px] ${
+                busUpgrade.affordable && busUpgrade.levels > 0
                   ? 'affordable-pulse border-emerald-400/90 bg-emerald-950/30'
                   : 'border-[#2b3347] bg-[#141620]'
               }`}
             >
-              <div className="flex items-center gap-2.5 min-w-0">
-                <BusIllustration className="w-9 h-9 flex-shrink-0" />
-                <div className="min-w-0">
-                  <div className="flex items-center gap-1.5">
+              <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                <div className="w-10 h-10 flex-shrink-0 rounded-lg bg-[#0d0f17] border border-[#262c3d] flex items-center justify-center p-1.5">
+                  <BusIllustration className="w-full h-full" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-1.5 flex-wrap">
                     <span className="text-xs font-black text-white truncate">Bus Ribbon</span>
-                    <span className="text-[10px] bg-[#242938] px-1.5 py-0.2 rounded font-bold text-amber-300">
+                    <span className="text-[10px] bg-[#242938] px-1.5 py-0.5 rounded font-bold text-amber-300">
                       Lvl {state.hardware.busLevel}
+                      {busUpgrade.levels > 1 && (
+                        <span className="text-amber-400 font-bold ml-1">+{busUpgrade.levels}</span>
+                      )}
                     </span>
                   </div>
-                  <div className="text-[11px] font-bold text-amber-400">
-                    -0.1s Flush Time
+                  <div className="text-[11px] font-bold text-amber-400 truncate mt-0.5">
+                    +{5 * Math.max(1, busUpgrade.levels)}% Dividend
                   </div>
                 </div>
               </div>
 
               <button
-                disabled={!isBusAffordable}
-                onClick={() => onPurchaseUpgrade('bus')}
-                className={`px-3 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 transition-all whitespace-nowrap ${
-                  isBusAffordable
-                    ? 'bg-[#00b06f] hover:bg-[#00c67d] text-white shadow-[0_4px_0_#007a4d] active:translate-y-1 active:shadow-none'
-                    : 'bg-[#242938] text-gray-500 border border-[#333b50] cursor-not-allowed'
+                disabled={!busUpgrade.affordable || busUpgrade.levels === 0}
+                onClick={() => onPurchaseUpgrade('bus', busUpgrade.levels)}
+                className={`w-[105px] h-[38px] flex-shrink-0 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 transition-all select-none ${
+                  busUpgrade.affordable && busUpgrade.levels > 0
+                    ? 'bg-[#00b06f] hover:bg-[#00c67d] text-white shadow-[0_4px_0_#007a4d] active:translate-y-1 active:shadow-none cursor-pointer'
+                    : 'bg-[#242938] text-gray-500 border border-[#333b50] cursor-not-allowed shadow-none'
                 }`}
               >
-                <RobuxIcon className="w-3.5 h-3.5" />
-                <span>{busCost.toLocaleString()}</span>
+                <RobuxIcon className="w-3.5 h-3.5 flex-shrink-0" />
+                <span className="truncate">{busUpgrade.totalCost.toLocaleString()}</span>
               </button>
             </div>
 
             {/* 5. Thermal Paste Syringe Card */}
             <div
-              className={`p-3 rounded-xl border transition-all flex items-center justify-between gap-3 ${
-                isPasteAffordable
+              className={`p-2.5 rounded-xl border transition-all flex items-center justify-between gap-2.5 min-h-[66px] ${
+                pasteUpgrade.affordable && pasteUpgrade.levels > 0
                   ? 'affordable-pulse border-emerald-400/90 bg-emerald-950/30'
                   : 'border-[#2b3347] bg-[#141620]'
               }`}
             >
-              <div className="flex items-center gap-2.5 min-w-0">
-                <PasteIllustration className="w-9 h-9 flex-shrink-0" />
-                <div className="min-w-0">
-                  <div className="flex items-center gap-1.5">
+              <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                <div className="w-10 h-10 flex-shrink-0 rounded-lg bg-[#0d0f17] border border-[#262c3d] flex items-center justify-center p-1.5">
+                  <PasteIllustration className="w-full h-full" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-1.5 flex-wrap">
                     <span className="text-xs font-black text-white truncate">Thermal Paste</span>
-                    <span className="text-[10px] bg-[#242938] px-1.5 py-0.2 rounded font-bold text-rose-300">
+                    <span className="text-[10px] bg-[#242938] px-1.5 py-0.5 rounded font-bold text-rose-300">
                       Lvl {state.hardware.thermalPasteLevel}/5
                     </span>
                   </div>
-                  <div className="text-[11px] font-bold text-rose-400">
-                    -5% Heat Gen
+                  <div className="text-[11px] font-bold text-rose-400 truncate mt-0.5">
+                    {state.hardware.thermalPasteLevel >= 5
+                      ? '-25% Heat Gen (Max Compound Cap)'
+                      : `-${5 * Math.max(1, pasteUpgrade.levels)}% Heat Gen`}
                   </div>
                 </div>
               </div>
 
-              {pasteCost !== null ? (
+              {state.hardware.thermalPasteLevel >= 5 ? (
+                <div className="w-[105px] h-[38px] flex-shrink-0 flex items-center justify-center text-[10px] font-black text-rose-300 bg-rose-950/40 rounded-xl border border-rose-800/60 uppercase tracking-wider text-center select-none">
+                  MAXED (5/5)
+                </div>
+              ) : (
                 <button
-                  disabled={!isPasteAffordable}
-                  onClick={() => onPurchaseUpgrade('paste')}
-                  className={`px-3 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 transition-all whitespace-nowrap ${
-                    isPasteAffordable
-                      ? 'bg-[#00b06f] hover:bg-[#00c67d] text-white shadow-[0_4px_0_#007a4d] active:translate-y-1 active:shadow-none'
-                      : 'bg-[#242938] text-gray-500 border border-[#333b50] cursor-not-allowed'
+                  disabled={!pasteUpgrade.affordable || pasteUpgrade.levels === 0}
+                  onClick={() => onPurchaseUpgrade('paste', pasteUpgrade.levels)}
+                  className={`w-[105px] h-[38px] flex-shrink-0 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 transition-all select-none ${
+                    pasteUpgrade.affordable && pasteUpgrade.levels > 0
+                      ? 'bg-[#00b06f] hover:bg-[#00c67d] text-white shadow-[0_4px_0_#007a4d] active:translate-y-1 active:shadow-none cursor-pointer'
+                    : 'bg-[#242938] text-gray-500 border border-[#333b50] cursor-not-allowed shadow-none'
                   }`}
                 >
-                  <RobuxIcon className="w-3.5 h-3.5" />
-                  <span>{pasteCost.toLocaleString()}</span>
+                  <RobuxIcon className="w-3.5 h-3.5 flex-shrink-0" />
+                  <span className="truncate">{pasteUpgrade.totalCost.toLocaleString()}</span>
                 </button>
-              ) : (
-                <span className="text-[11px] text-gray-500 font-black px-3 py-2 bg-[#181c28] rounded-xl border border-[#2c3347]">
-                  MAXED
-                </span>
               )}
             </div>
           </div>

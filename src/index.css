@@ -27,3 +27,59 @@
 .affordable-glow-subtle {
   animation: affordableGlow 2s infinite ease-in-out;
 }
+
+@keyframes surgeShake {
+  0%, 100% {
+    transform: translate(0, 0) rotate(0deg);
+  }
+  20% {
+    transform: translate(-2px, 1.5px) rotate(-0.3deg);
+  }
+  40% {
+    transform: translate(2px, -1px) rotate(0.3deg);
+  }
+  60% {
+    transform: translate(-1.5px, -1.5px) rotate(-0.2deg);
+  }
+  80% {
+    transform: translate(1.5px, 1.5px) rotate(0.2deg);
+  }
+}
+
+@keyframes surgeVignettePulse {
+  0% {
+    opacity: 0.5;
+  }
+  50% {
+    opacity: 0.95;
+  }
+  100% {
+    opacity: 0.5;
+  }
+}
+
+.surge-shake {
+  animation: surgeShake 0.14s infinite linear;
+}
+
+.surge-vignette {
+  background: radial-gradient(ellipse at center, transparent 38%, rgba(239, 68, 68, 0.45) 75%, rgba(185, 28, 28, 0.85) 100%);
+  animation: surgeVignettePulse 0.55s infinite ease-in-out;
+}
+
+@keyframes thermalWarningFlash {
+  0%, 100% {
+    opacity: 1;
+    filter: drop-shadow(0 0 16px rgba(255, 0, 60, 0.9));
+  }
+  50% {
+    opacity: 0.12;
+    filter: drop-shadow(0 0 2px rgba(255, 0, 60, 0.2));
+  }
+}
+
+.thermal-warning-blink {
+  animation-name: thermalWarningFlash;
+  animation-timing-function: cubic-bezier(0.4, 0, 0.6, 1);
+  animation-iteration-count: infinite;
+}
