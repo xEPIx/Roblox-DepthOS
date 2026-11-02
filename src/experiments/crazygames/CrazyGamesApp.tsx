@@ -91,11 +91,18 @@ export function CrazyGamesApp() {
   // Keyboard shortcut listener for CrazyGames browser play
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (stateRef.current.isBSOD) {
+        if (e.code === 'Space' || e.code === 'Enter') {
+          e.preventDefault();
+          handleFastReboot();
+          return;
+        }
+      }
+
       if (gameState === 'intro') {
         if (e.code === 'Enter' || e.code === 'Space') {
           e.preventDefault();
-          audio.ensureContext();
-          setGameState('playing');
+          handleStartGame();
         }
         return;
       }
@@ -125,6 +132,28 @@ export function CrazyGamesApp() {
       window.removeEventListener('keyup', handleKeyUp);
     };
   }, [gameState]);
+
+  const handleStartGame = () => {
+    audio.ensureContext();
+    audio.playUpgradeSound();
+    setGameState('playing');
+  };
+
+  // Fast reboot from 100°C Meltdown
+  const handleFastReboot = () => {
+    audio.ensureContext();
+    audio.playUpgradeSound();
+    setDepthState((prev) => ({
+      ...prev,
+      isBSOD: false,
+      heat: 35,
+      volatileBytes: 0,
+      ramUsedMB: 0,
+      isBufferStalled: false,
+      isFlushing: false,
+      bsodCountdown: 0,
+    }));
+  };
 
   // Primary Gameplay Actions
   const handleProcessClick = () => {
@@ -235,7 +264,7 @@ export function CrazyGamesApp() {
   };
 
   return (
-    <div className="relative w-screen h-screen overflow-hidden bg-black select-none">
+    <div className="relative w-screen h-screen overflow-hidden bg-black select-none font-mono">
       {/* 3D Battlestation View Layer */}
       <div
         ref={threeMountRef}
@@ -248,41 +277,53 @@ export function CrazyGamesApp() {
       <ThermalGrainOverlay heat={depthState.heat} isBSOD={depthState.isBSOD} />
       <ThermalWarningOverlay heat={depthState.heat} isBSOD={depthState.isBSOD} />
 
-      {/* Intro Modal or Active Arcade Desktop */}
+      {/* High-Impact Arcade Title Screen or Active Arcade Desktop */}
       {gameState === 'intro' ? (
-        <div className="absolute inset-0 z-50 flex flex-col items-center justify-center p-6 bg-black/85 backdrop-blur-md font-mono text-center">
-          <div className="max-w-md p-8 border-2 border-cyan-500 rounded-2xl bg-[#09111e] shadow-[0_0_50px_rgba(6,182,212,0.4)]">
-            <div className="text-5xl mb-4 animate-bounce">⚡</div>
-            <h1 className="text-3xl font-black text-white tracking-wider">
-              DEPTH<span className="text-cyan-400">OS</span>
+        <div className="absolute inset-0 z-50 flex flex-col items-center justify-center p-6 bg-gradient-to-b from-black/90 via-[#070e1c]/95 to-black/95 backdrop-blur-xl font-mono text-center">
+          <div className="max-w-lg p-8 sm:p-10 border-2 border-cyan-400 rounded-3xl bg-[#08101e]/95 shadow-[0_0_60px_rgba(6,182,212,0.4)] ring-2 ring-cyan-500/30">
+            {/* Pulsing Core Badge */}
+            <div className="inline-flex items-center gap-2 px-3 py-1 bg-cyan-950/80 border border-cyan-400 rounded-full text-xs font-black text-cyan-300 uppercase tracking-widest mb-4 animate-pulse">
+              <span className="w-2 h-2 rounded-full bg-cyan-400 animate-ping" />
+              <span>CRAZYGAMES ARCADE EDITION</span>
+            </div>
+
+            {/* Neon Title */}
+            <h1 className="text-4xl sm:text-6xl font-black text-white tracking-tight flex items-center justify-center gap-1">
+              <span>DEPTH</span>
+              <span className="text-cyan-400">OS</span>
             </h1>
-            <p className="text-emerald-400 text-xs font-bold uppercase tracking-widest mt-1">
-              CrazyGames Arcade Edition
+            <p className="text-amber-400 text-xs sm:text-sm font-black uppercase tracking-widest mt-1">
+              Thermal Redline Mining Simulator
             </p>
 
-            <div className="my-6 p-4 bg-black/50 border border-gray-800 rounded-xl text-left space-y-2 text-xs text-gray-300">
-              <div className="flex items-center gap-2">
-                <span className="text-cyan-400 font-bold">1. CLICK:</span>
-                <span>Mine volatile bytes [SPACE]</span>
+            {/* 3 Visual Action Cards */}
+            <div className="my-6 grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-left text-xs">
+              <div className="p-3 bg-black/60 border border-cyan-500/40 rounded-xl">
+                <div className="text-xl mb-1">⚡</div>
+                <div className="text-cyan-300 font-black">1. MINE BYTES</div>
+                <div className="text-[11px] text-gray-400 mt-0.5">Click or tap [SPACE]</div>
               </div>
-              <div className="flex items-center gap-2">
-                <span className="text-amber-400 font-bold">2. SURGE:</span>
-                <span>Push heat to 85°C for 10x payouts</span>
+              <div className="p-3 bg-black/60 border border-amber-500/40 rounded-xl">
+                <div className="text-xl mb-1">🔥</div>
+                <div className="text-amber-300 font-black">2. RIDE SURGE</div>
+                <div className="text-[11px] text-gray-400 mt-0.5">85°C = 10X Cash</div>
               </div>
-              <div className="flex items-center gap-2">
-                <span className="text-emerald-400 font-bold">3. FLUSH:</span>
-                <span>Hold [F] to bank cash before 100°C</span>
+              <div className="p-3 bg-black/60 border border-emerald-500/40 rounded-xl">
+                <div className="text-xl mb-1">💰</div>
+                <div className="text-emerald-300 font-black">3. BANK CASH</div>
+                <div className="text-[11px] text-gray-400 mt-0.5">Hold [F] before 100°C</div>
               </div>
             </div>
 
+            {/* Big Primary Start CTA Button */}
             <button
-              onClick={() => {
-                audio.ensureContext();
-                setGameState('playing');
-              }}
-              className="w-full py-4 bg-gradient-to-r from-emerald-500 to-cyan-400 hover:from-emerald-400 hover:to-cyan-300 text-black font-black text-sm uppercase tracking-widest rounded-xl shadow-[0_0_20px_rgba(6,182,212,0.6)] transition-all active:scale-95"
+              onClick={handleStartGame}
+              className="w-full py-4 sm:py-5 bg-gradient-to-r from-emerald-400 via-cyan-400 to-emerald-400 hover:from-emerald-300 hover:to-cyan-300 text-black font-black text-base uppercase tracking-widest rounded-2xl shadow-[0_0_30px_rgba(6,182,212,0.8)] transition-all transform hover:scale-102 active:scale-95 flex items-center justify-center gap-3 ring-4 ring-emerald-400/30"
             >
-              PLAY NOW [ENTER]
+              <span>INSERT COIN / PLAY NOW</span>
+              <span className="text-xs bg-black/30 text-black px-2 py-0.5 rounded font-bold font-mono">
+                [SPACE / ENTER]
+              </span>
             </button>
           </div>
         </div>
@@ -301,11 +342,22 @@ export function CrazyGamesApp() {
         </div>
       )}
 
-      {/* BSOD Crash Screen */}
-      {depthState.isBSOD && <BSODOverlay countdown={depthState.bsodCountdown} />}
+      {/* BSOD Crash Screen with Instant Fast Reboot Button */}
+      {depthState.isBSOD && (
+        <div className="absolute inset-0 z-50 pointer-events-auto">
+          <BSODOverlay countdown={depthState.bsodCountdown} />
+          <div className="absolute bottom-8 left-1/2 -translate-x-1/2 z-50">
+            <button
+              onClick={handleFastReboot}
+              className="px-8 py-3.5 bg-white hover:bg-cyan-200 text-blue-900 font-mono font-black text-xs sm:text-sm uppercase tracking-widest rounded-xl shadow-2xl transition-all animate-bounce active:scale-95 border-2 border-white"
+            >
+              ⚡ FAST REBOOT SILICON [SPACE]
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
 export default CrazyGamesApp;
-

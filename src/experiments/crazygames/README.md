@@ -13,25 +13,27 @@ CrazyGames reviewers test hundreds of titles and evaluate them rigorously on:
 
 ---
 
-## 2. Prioritized CrazyGames Issues in Original Baseline
+## 2. Key Polish Upgrades Implemented in Experimental Prototype
 
-| Priority | Issue | CrazyGames Impact | Solution Implemented in Experiment |
-|---|---|---|---|
-| **P0** | Multi-modal entry barrier (`SelectionModal` + 5-step `TutorialModal`) | High drop-off rate before player takes first action | Instant 1-tap Arcade "PLAY NOW" banner + non-modal coachmarks |
-| **P0** | "RAM Buffer Full" confusion | Players freeze when clicking stops working without realizing RAM is full | Giant tactile warning banner and glowing coachmark to "HOLD [F] TO FLUSH" |
-| **P1** | Subdued click feedback | Clicking feels like typing into a spreadsheet rather than mining cyber assets | `FloatingNumberFx` popups (`+5`, `+25`, `🔥 3.5X SURGE!`) with spring bounce |
-| **P1** | Jargon overload on desktop UI | "PCIe Bus Channel", "Thermal Capacitance", "Governor Daemon" causes cognitive fatigue | Streamlined 3-column arcade layout: Cash, Core Action, Upgrades |
-| **P2** | Lack of early milestones | Players don't know what to aim for in first 60s | Persistent `FirstMinuteObjectiveBar` tracking 4 instant reward quests |
+| Feature | CrazyGames Benefit | Implementation Detail |
+|---|---|---|
+| **Arcade Title Screen** | Immediate 1-tap playability with zero lore friction | 3 visual cards (`⚡ MINE BYTES`, `🔥 RIDE 85°C SURGE`, `💰 BANK CASH`) and large `[SPACE / ENTER]` button |
+| **Bespoke Floating Numbers** | High-energy tactile pop on every action | Color-coded popups with flame badges on surge (`🔥 3.5X SURGE`), cash gains (`💰 +$120`), and mission rewards |
+| **Mission Objective Bar** | Immediate direction and early capital boost | 4 progressive milestones (`Mine 15 Bytes` ➔ `Bank $25` ➔ `Buy CPU` ➔ `Hit 85°C Surge`) with confetti celebrations |
+| **RAM Full Alert Path** | Eliminates player freeze when RAM fills | Core button vibrates: `⚠️ RAM FULL! FLUSH NOW` + Flush button flashes green arrows |
+| **Explicit Thermal Zones** | Crystal-clear danger/reward understanding | 4 labeled markers: `SAFE (1x)`, `WARM`, `🔥 85°C SURGE (10X)`, `100°C 💀 MELTDOWN` |
+| **Fast BSOD Reboot** | Eliminates penalty boredom | Hitting `[SPACE]` on BSOD triggers an instant reboot back to 35°C |
+| **Zero Production Impact** | Complete safety for main codebase | Production files remain 100% unaltered in repository root |
 
 ---
 
 ## 3. First 60-Second Sequence Design
 
-1. **0–5s**: Instant boot with punchy 3-line briefing: `1. Mine Bytes [SPACE]`, `2. Push to 85°C Surge`, `3. Bank Cash [HOLD F]`.
-2. **5–15s**: Player clicks big central CPU core. Floating numbers fly up; Quest 1 (`Mine 15 Bytes`) completes with instant reward claim.
-3. **15–30s**: Heat gauge climbs into the amber/orange zone. Multiplier ticks to 2.5x. Coachmark highlights the Flush button.
-4. **30–45s**: Player flushes cache. Cash counter leaps up with audio chime and particle confetti. Quest 2 (`Bank $25`) completes.
-5. **45–60s**: Hardware upgrade shop glows green. Player purchases CPU Core Lv.2 and cooling fans. The loop is understood and mastered.
+1. **0–3s**: Instant boot with punchy 3-card briefing. Player hits `[SPACE]` or clicks `PLAY NOW`.
+2. **3–15s**: [Mission 1] *"Mine Volatile Bytes (0/15)"*. Player taps Core or `[SPACE]`. Large neon `+5` numbers bounce up. Objective completes with a confetti pop and instant `+$50` claim.
+3. **15–30s**: [Mission 2] *"Bank Your Cash"*. Heat climbs toward 85°C. Non-blocking coachmark highlights the Flush button. Player holds `[F]` and banks profit with audio chimes.
+4. **30–45s**: [Mission 3] *"Upgrade Hardware"*. Hardware shop pulses green. Player buys CPU Upgrade Lv.2 (`+2 Bytes/Click`). Click yield instantly jumps.
+5. **45–60s**: [Mission 4] *"Ride Thermal Surge (85°C)"*. Player intentionally overheats into the 85°C orange/red zone. Cockpit rumbles with `.surgeShake`, payout jumps to 4.5x, and player flushes right before 100°C.
 
 ---
 
@@ -42,10 +44,11 @@ In strict accordance with the safety rules:
 - **Isolated Sandbox**: All experimental code lives in `/src/experiments/crazygames/`:
   - `types.ts`: Arcade types (objectives, floating numbers, onboarding stages)
   - `components/FloatingNumberFx.tsx`: Arcade floating damage/gain popups
-  - `components/FirstMinuteObjectiveBar.tsx`: 4-stage quest progress bar
-  - `components/CrazyGamesOnboardingOverlay.tsx`: Non-blocking coachmarks
-  - `components/CrazyGamesDesktop.tsx`: Streamlined 3-column arcade HUD
-  - `CrazyGamesApp.tsx`: Standalone app shell to preview the CrazyGames edition
+  - `components/FirstMinuteObjectiveBar.tsx`: 4-stage quest progress bar with confetti
+  - `components/CrazyGamesOnboardingOverlay.tsx`: 1-line directional action coachmarks
+  - `components/CrazyGamesDesktop.tsx`: Streamlined 3-column arcade HUD with labeled heat zones
+  - `CrazyGamesApp.tsx`: Standalone app shell with fast BSOD reboot and zero-latency keyboard controls
+- **Switching**: `src/main.tsx` mounts `CrazyGamesApp` by default with a top-right `[SWITCH]` button to toggle back to `PRODUCTION BUILD` anytime.
 
 ---
 
@@ -54,7 +57,7 @@ In strict accordance with the safety rules:
 - [x] English default language throughout UI
 - [x] Loads in desktop Chrome/Firefox in < 3 seconds
 - [x] WebGL context loss / sandboxed renderer graceful 2D fallback
-- [x] Zero runtime uncaught exceptions or console errors
-- [x] Fully keyboard playable (`SPACE`, `HOLD F`, `SPACE + E`) and mobile touch friendly
+- [x] Zero runtime uncaught exceptions or console errors (`tsc --noEmit` clean)
+- [x] Fully keyboard playable (`SPACE`, `HOLD F`, `SPACE + E`, `ENTER`) and mobile touch friendly
 - [x] Responsive layout across 1080p, 720p, and tablet viewports
 - [x] Instant sound mute and volume safety
