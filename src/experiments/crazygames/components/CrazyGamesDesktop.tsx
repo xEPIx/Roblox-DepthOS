@@ -91,6 +91,34 @@ export const CrazyGamesDesktop: React.FC<CrazyGamesDesktopProps> = ({
   ]);
 
   const [currentObjIndex, setCurrentObjIndex] = useState<number>(0);
+  const prevBankedRef = useRef<number>(state.bankedBytes);
+
+  // Detect cash flush payout and trigger celebration popup
+  useEffect(() => {
+    if (state.bankedBytes > prevBankedRef.current) {
+      const diff = state.bankedBytes - prevBankedRef.current;
+      // If it wasn't an objective claim (which handles its own popup)
+      if (diff > 0 && !state.isBSOD) {
+        const id = nextIdRef.current++;
+        setFloatingItems((prev) => [
+          ...prev.slice(-6),
+          {
+            id,
+            x: window.innerWidth / 2,
+            y: window.innerHeight / 2 - 30,
+            text: `💰 +$${diff.toLocaleString()} BANKED!`,
+            color: '#10b981',
+            scale: 1.4,
+            isSurge: true,
+          },
+        ]);
+        setTimeout(() => {
+          setFloatingItems((prev) => prev.filter((item) => item.id !== id));
+        }, 1100);
+      }
+    }
+    prevBankedRef.current = state.bankedBytes;
+  }, [state.bankedBytes, state.isBSOD]);
 
   // Guided Coachmarks (remembers completion)
   const [onboardingStage, setOnboardingStage] = useState<OnboardingStage>(() => {
@@ -256,6 +284,27 @@ export const CrazyGamesDesktop: React.FC<CrazyGamesDesktopProps> = ({
     else if (onboardingStage === 'watch_heat') setOnboardingStage('flush_cash');
     else if (onboardingStage === 'flush_cash') setOnboardingStage('buy_upgrade');
     else handleSkipOnboarding();
+  };
+
+  const handleBuyUpgrade = (type: 'cpu' | 'ram' | 'cooling' | 'bus' | 'paste') => {
+    onPurchaseUpgrade(type);
+    const id = nextIdRef.current++;
+    const label = type === 'cpu' ? 'CPU CLOCK' : type === 'ram' ? 'RAM BUFFER' : type === 'cooling' ? 'COOLING FAN' : 'PCIE BUS';
+    setFloatingItems((prev) => [
+      ...prev.slice(-6),
+      {
+        id,
+        x: window.innerWidth * 0.75,
+        y: window.innerHeight / 2,
+        text: `⚡ ${label} LEVEL UP!`,
+        color: '#38bdf8',
+        scale: 1.3,
+        isSurge: true,
+      },
+    ]);
+    setTimeout(() => {
+      setFloatingItems((prev) => prev.filter((item) => item.id !== id));
+    }, 1000);
   };
 
   return (
@@ -446,12 +495,18 @@ export const CrazyGamesDesktop: React.FC<CrazyGamesDesktopProps> = ({
               onMouseDown={onStartFlush}
               onMouseUp={onCancelFlush}
               onMouseLeave={onCancelFlush}
-              onTouchStart={onStartFlush}
-              onTouchEnd={onCancelFlush}
+              onTouchStart={(e) => {
+                e.preventDefault();
+                onStartFlush();
+              }}
+              onTouchEnd={(e) => {
+                e.preventDefault();
+                onCancelFlush();
+              }}
               disabled={state.volatileBytes === 0 || state.isBSOD}
-              className={`w-full py-4 px-6 rounded-2xl border-2 font-black text-sm uppercase tracking-wider flex items-center justify-between transition-all active:scale-95 ${
+              className={`w-full py-4 px-6 rounded-2xl border-2 font-black text-sm uppercase tracking-wider relative overflow-hidden flex items-center justify-between transition-all active:scale-95 ${
                 state.isFlushing
-                  ? 'bg-gradient-to-r from-emerald-400 to-cyan-400 text-black border-white shadow-[0_0_35px_rgba(16,185,129,0.9)] animate-pulse'
+                  ? 'bg-emerald-950 border-emerald-300 shadow-[0_0_35px_rgba(16,185,129,0.9)] ring-2 ring-emerald-400'
                   : state.isBufferStalled
                   ? 'bg-emerald-500 text-black border-emerald-300 animate-bounce shadow-[0_0_30px_rgba(16,185,129,0.9)] ring-4 ring-emerald-300'
                   : state.volatileBytes > 0
@@ -459,15 +514,25 @@ export const CrazyGamesDesktop: React.FC<CrazyGamesDesktopProps> = ({
                   : 'bg-gray-900/60 border-gray-800 text-gray-600 cursor-not-allowed'
               }`}
             >
-              <div className="flex items-center gap-2.5">
+              {/* Animated Progress Fill Bar when Flushing */}
+              {state.isFlushing && (
+                <div
+                  className="absolute inset-y-0 left-0 bg-gradient-to-r from-emerald-500 to-cyan-400 opacity-90 transition-all duration-100 ease-linear"
+                  style={{ width: `${Math.min(100, Math.round(state.flushProgress * 100))}%` }}
+                />
+              )}
+
+              <div className="flex items-center gap-2.5 relative z-10 text-white drop-shadow">
                 <span className="text-xl">💰</span>
                 <span className="text-sm font-black">
-                  {state.isFlushing ? 'TRANSFERRING CASH...' : 'HOLD [F] TO BANK PROFIT'}
+                  {state.isFlushing
+                    ? `BANKING... ${Math.round(state.flushProgress * 100)}%`
+                    : 'HOLD [F] TO BANK PROFIT'}
                 </span>
               </div>
-              <div className="text-right">
+              <div className="text-right relative z-10 text-white drop-shadow">
                 <span className="text-sm font-black block">+${potentialPayout}</span>
-                <span className="text-[10px] text-gray-400 font-normal">[{flushDuration.toFixed(1)}s]</span>
+                <span className="text-[10px] text-emerald-200 font-normal">[{flushDuration.toFixed(1)}s]</span>
               </div>
             </button>
           </div>
@@ -507,7 +572,7 @@ export const CrazyGamesDesktop: React.FC<CrazyGamesDesktopProps> = ({
               </span>
             </div>
             <button
-              onClick={() => onPurchaseUpgrade('cpu')}
+              onClick={() => handleBuyUpgrade('cpu')}
               disabled={state.bankedBytes < cpuCost}
               className={`px-4 py-2 rounded-xl text-xs font-black uppercase transition-all ${
                 state.bankedBytes >= cpuCost
@@ -537,7 +602,7 @@ export const CrazyGamesDesktop: React.FC<CrazyGamesDesktopProps> = ({
               </span>
             </div>
             <button
-              onClick={() => onPurchaseUpgrade('ram')}
+              onClick={() => handleBuyUpgrade('ram')}
               disabled={state.bankedBytes < ramCost}
               className={`px-4 py-2 rounded-xl text-xs font-black uppercase transition-all ${
                 state.bankedBytes >= ramCost
@@ -567,7 +632,7 @@ export const CrazyGamesDesktop: React.FC<CrazyGamesDesktopProps> = ({
               </span>
             </div>
             <button
-              onClick={() => onPurchaseUpgrade('cooling')}
+              onClick={() => handleBuyUpgrade('cooling')}
               disabled={state.bankedBytes < coolingCost}
               className={`px-4 py-2 rounded-xl text-xs font-black uppercase transition-all ${
                 state.bankedBytes >= coolingCost
@@ -597,7 +662,7 @@ export const CrazyGamesDesktop: React.FC<CrazyGamesDesktopProps> = ({
               </span>
             </div>
             <button
-              onClick={() => onPurchaseUpgrade('bus')}
+              onClick={() => handleBuyUpgrade('bus')}
               disabled={state.bankedBytes < busCost}
               className={`px-4 py-2 rounded-xl text-xs font-black uppercase transition-all ${
                 state.bankedBytes >= busCost

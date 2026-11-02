@@ -125,11 +125,18 @@ export function CrazyGamesApp() {
       }
     };
 
+    const handleFirstGesture = () => {
+      audio.ensureContext();
+      window.removeEventListener('pointerdown', handleFirstGesture);
+    };
+
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
+    window.addEventListener('pointerdown', handleFirstGesture);
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
+      window.removeEventListener('pointerdown', handleFirstGesture);
     };
   }, [gameState]);
 
