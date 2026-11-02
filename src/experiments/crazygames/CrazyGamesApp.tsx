@@ -88,6 +88,44 @@ export function CrazyGamesApp() {
     return () => clearInterval(interval);
   }, []);
 
+  // Keyboard shortcut listener for CrazyGames browser play
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (gameState === 'intro') {
+        if (e.code === 'Enter' || e.code === 'Space') {
+          e.preventDefault();
+          audio.ensureContext();
+          setGameState('playing');
+        }
+        return;
+      }
+
+      if (e.code === 'Space') {
+        e.preventDefault();
+        handleProcessClick();
+      } else if (e.code === 'KeyF') {
+        if (!e.repeat) {
+          handleStartFlush();
+        }
+      } else if (e.code === 'KeyE') {
+        handleEmergencyVent();
+      }
+    };
+
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.code === 'KeyF') {
+        handleCancelFlush();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+    };
+  }, [gameState]);
+
   // Primary Gameplay Actions
   const handleProcessClick = () => {
     const s = stateRef.current;

@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
+import confetti from 'canvas-confetti';
 import { DepthOSState } from '../../../types/depthos';
+import { audio } from '../../../audio/depthosAudio';
 import {
   calculateThermalMultiplier,
   calculateBytesPerProcess,
@@ -200,12 +202,41 @@ export const CrazyGamesDesktop: React.FC<CrazyGamesDesktopProps> = ({
     const cur = objectives[currentObjIndex];
     if (!cur || !cur.completed || cur.claimed) return;
 
+    audio.ensureContext();
+    audio.playUpgradeSound();
+    try {
+      confetti({
+        particleCount: 40,
+        spread: 70,
+        origin: { y: 0.15 },
+        colors: ['#00ff88', '#00e5ff', '#ffdd00'],
+      });
+    } catch {}
+
     setObjectives((prev) =>
       prev.map((obj, i) => (i === currentObjIndex ? { ...obj, claimed: true } : obj))
     );
 
     // Give bonus bytes
     state.bankedBytes += cur.rewardBytes;
+
+    // Spawn reward notification popup
+    const id = nextIdRef.current++;
+    setFloatingItems((prev) => [
+      ...prev.slice(-6),
+      {
+        id,
+        x: window.innerWidth / 2,
+        y: 100,
+        text: `★ +${cur.rewardBytes} BONUS BYTES CLAIMED!`,
+        color: '#10b981',
+        scale: 1.4,
+        isSurge: true,
+      },
+    ]);
+    setTimeout(() => {
+      setFloatingItems((prev) => prev.filter((item) => item.id !== id));
+    }, 1200);
 
     // Advance to next objective
     if (currentObjIndex < objectives.length - 1) {
