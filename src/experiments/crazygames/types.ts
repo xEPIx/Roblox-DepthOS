@@ -30,3 +30,17 @@ export type OnboardingStage =
   | 'flush_cash'       // Step 3: Bank your cash before reaching 100°C meltdown
   | 'buy_upgrade'      // Step 4: Buy your first hardware upgrade
   | 'completed';       // Free play
+
+export type RewardedAdType =
+  | 'double_flush'        // 2x Next Flush Payout
+  | 'cryo_dump'           // Instant Full Liquid Nitrogen Cool to 25°C
+  | 'turbo_overclock'     // 30s Double Mining Yield
+  | 'bsod_revive';        // Instant Meltdown Revive with Zero Data Loss
+
+export interface RewardedAdState {
+  isOpen: boolean;
+  type: RewardedAdType;
+  title: string;
+  rewardLabel: string;
+  payoutBonus?: number;
+}

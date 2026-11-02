@@ -16,7 +16,7 @@ import {
   getSurgeThreshold,
   CRITICAL_TEMP,
 } from '../../../game/simulation';
-import { FloatingRewardItem, ArcadeObjective, OnboardingStage } from '../types';
+import { FloatingRewardItem, ArcadeObjective, OnboardingStage, RewardedAdType } from '../types';
 import { FloatingNumberFx } from './FloatingNumberFx';
 import { FirstMinuteObjectiveBar } from './FirstMinuteObjectiveBar';
 import { CrazyGamesOnboardingOverlay } from './CrazyGamesOnboardingOverlay';
@@ -30,6 +30,10 @@ interface CrazyGamesDesktopProps {
   onPurchaseUpgrade: (type: 'cpu' | 'ram' | 'cooling' | 'bus' | 'paste') => void;
   onToggle3DView?: () => void;
   is3DActive?: boolean;
+  onTriggerRewardedAd: (type: RewardedAdType, title: string, rewardLabel: string, bonus?: number) => void;
+  isTurboActive?: boolean;
+  turboTimeRemaining?: number;
+  isDoubleFlushActive?: boolean;
 }
 
 export const CrazyGamesDesktop: React.FC<CrazyGamesDesktopProps> = ({
@@ -41,6 +45,10 @@ export const CrazyGamesDesktop: React.FC<CrazyGamesDesktopProps> = ({
   onPurchaseUpgrade,
   onToggle3DView,
   is3DActive,
+  onTriggerRewardedAd,
+  isTurboActive = false,
+  turboTimeRemaining = 0,
+  isDoubleFlushActive = false,
 }) => {
   const [floatingItems, setFloatingItems] = useState<FloatingRewardItem[]>([]);
   const [isProcessActive, setIsProcessActive] = useState<boolean>(false);
@@ -441,6 +449,14 @@ export const CrazyGamesDesktop: React.FC<CrazyGamesDesktopProps> = ({
                 [SPACE + E]
               </span>
             </button>
+
+            {/* Rewarded Ad Boost: Liquid Nitrogen Dump */}
+            <button
+              onClick={() => onTriggerRewardedAd('cryo_dump', 'LIQUID NITROGEN DUMP', 'Instant Sub-Zero reset to 25.0°C')}
+              className="w-full mt-2 py-2 bg-cyan-950/40 hover:bg-cyan-900/60 border border-cyan-400/50 text-cyan-200 text-xs font-black rounded-xl flex items-center justify-center gap-1.5 transition-all active:scale-95 shadow-md"
+            >
+              <span>❄️ AD BOOST: FREE NITROGEN DUMP (25°C)</span>
+            </button>
           </div>
         </div>
 
@@ -553,6 +569,19 @@ export const CrazyGamesDesktop: React.FC<CrazyGamesDesktopProps> = ({
                 <span className="text-[10px] text-emerald-200 font-normal">[{flushDuration.toFixed(1)}s]</span>
               </div>
             </button>
+
+            {/* Rewarded Ad Boost: 2x Next Flush */}
+            <button
+              onClick={() => onTriggerRewardedAd('double_flush', 'DOUBLE NEXT FLUSH', '2X Cash payout on your next bank')}
+              className={`w-full mt-2.5 py-2.5 px-4 rounded-xl border text-xs font-black uppercase tracking-wider flex items-center justify-center gap-2 transition-all active:scale-95 shadow-lg ${
+                isDoubleFlushActive
+                  ? 'bg-gradient-to-r from-amber-400 to-yellow-300 text-black border-yellow-200 shadow-[0_0_20px_rgba(251,191,36,0.9)] animate-pulse ring-2 ring-amber-300'
+                  : 'bg-amber-950/50 hover:bg-amber-900/70 border-amber-500/60 text-amber-300'
+              }`}
+            >
+              <span>🚀</span>
+              <span>{isDoubleFlushActive ? '2X FLUSH BOOST ACTIVE!' : 'AD BOOST: 2X NEXT FLUSH PAYOUT'}</span>
+            </button>
           </div>
         </div>
 
@@ -571,6 +600,19 @@ export const CrazyGamesDesktop: React.FC<CrazyGamesDesktopProps> = ({
               </button>
             )}
           </div>
+
+          {/* Rewarded Ad Boost: Turbo Overclock */}
+          <button
+            onClick={() => onTriggerRewardedAd('turbo_overclock', '30s TURBO OVERCLOCK', '2X Bytes per click for 30 seconds')}
+            className={`w-full py-2.5 px-3 rounded-xl border text-xs font-black uppercase tracking-wider flex items-center justify-center gap-2 transition-all active:scale-95 shadow-md ${
+              isTurboActive
+                ? 'bg-gradient-to-r from-purple-500 via-pink-500 to-cyan-400 text-black border-white shadow-[0_0_20px_rgba(168,85,247,0.9)] animate-pulse'
+                : 'bg-purple-950/50 hover:bg-purple-900/70 border-purple-500/60 text-purple-200'
+            }`}
+          >
+            <span>⚡</span>
+            <span>{isTurboActive ? `OVERCLOCK ACTIVE (${turboTimeRemaining}s)` : 'AD BOOST: 30s 2X OVERCLOCK'}</span>
+          </button>
 
           {/* Upgrade Card: CPU */}
           <div

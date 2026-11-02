@@ -17,6 +17,8 @@ import {
 import { audio } from '../../audio/depthosAudio';
 import { createDepthOSThreeScene, SceneController } from '../../game/threeScene';
 import { CrazyGamesDesktop } from './components/CrazyGamesDesktop';
+import { RewardedAdModal } from './components/RewardedAdModal';
+import { RewardedAdState, RewardedAdType } from './types';
 import { BSODOverlay } from '../../components/BSODOverlay';
 import { ThermalGrainOverlay } from '../../components/ThermalGrainOverlay';
 import { ThermalWarningOverlay } from '../../components/ThermalWarningOverlay';
@@ -26,11 +28,40 @@ export function CrazyGamesApp() {
   const [depthState, setDepthState] = useState<DepthOSState>(() => createInitialDepthOSState());
   const [is3DActive, setIs3DActive] = useState<boolean>(false);
 
+  // Rewarded Ad Monetization State
+  const [adModalState, setAdModalState] = useState<RewardedAdState>({
+    isOpen: false,
+    type: 'double_flush',
+    title: '',
+    rewardLabel: '',
+  });
+  const [isDoubleFlushActive, setIsDoubleFlushActive] = useState<boolean>(false);
+  const [isTurboActive, setIsTurboActive] = useState<boolean>(false);
+  const [turboTimeRemaining, setTurboTimeRemaining] = useState<number>(0);
+
   const stateRef = useRef<DepthOSState>(depthState);
   stateRef.current = depthState;
 
+  const isDoubleFlushRef = useRef<boolean>(isDoubleFlushActive);
+  isDoubleFlushRef.current = isDoubleFlushActive;
+
   const threeMountRef = useRef<HTMLDivElement | null>(null);
   const sceneCtrlRef = useRef<SceneController | null>(null);
+
+  // 1-second countdown timer for active Turbo Overclock boost
+  useEffect(() => {
+    if (!isTurboActive) return;
+    const t = setInterval(() => {
+      setTurboTimeRemaining((prev) => {
+        if (prev <= 1) {
+          setIsTurboActive(false);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(t);
+  }, [isTurboActive]);
 
   // Mount Three.js 3D battlestation (runs in background or visible when toggled)
   useEffect(() => {
@@ -70,7 +101,13 @@ export function CrazyGamesApp() {
         audio.playBSODCrash();
       }
 
+      // Check if flush completed and apply Double Flush Rewarded Bonus if active
       if (prev.isFlushing && !next.isFlushing && next.bankedBytes > prev.bankedBytes) {
+        if (isDoubleFlushRef.current) {
+          const addedYield = next.bankedBytes - prev.bankedBytes;
+          next.bankedBytes += addedYield;
+          setIsDoubleFlushActive(false);
+        }
         audio.playFlushChime();
       }
 
@@ -146,6 +183,49 @@ export function CrazyGamesApp() {
     setGameState('playing');
   };
 
+  // Rewarded Ad Trigger Handler
+  const handleTriggerRewardedAd = (
+    type: RewardedAdType,
+    title: string,
+    rewardLabel: string,
+    bonus?: number
+  ) => {
+    setAdModalState({
+      isOpen: true,
+      type,
+      title,
+      rewardLabel,
+      payoutBonus: bonus,
+    });
+  };
+
+  // Rewarded Ad Claim Handler
+  const handleClaimAdReward = () => {
+    audio.ensureContext();
+    audio.playUpgradeSound();
+
+    if (adModalState.type === 'double_flush') {
+      setIsDoubleFlushActive(true);
+    } else if (adModalState.type === 'cryo_dump') {
+      audio.playCryoVent();
+      setDepthState((prev) => ({
+        ...prev,
+        heat: 25.0,
+      }));
+    } else if (adModalState.type === 'turbo_overclock') {
+      setIsTurboActive(true);
+      setTurboTimeRemaining(30);
+    } else if (adModalState.type === 'bsod_revive') {
+      setDepthState((prev) => ({
+        ...prev,
+        isBSOD: false,
+        heat: 35.0,
+        bsodCountdown: 0,
+        isBufferStalled: false,
+      }));
+    }
+  };
+
   // Fast reboot from 100°C Meltdown
   const handleFastReboot = () => {
     audio.ensureContext();
@@ -168,7 +248,11 @@ export function CrazyGamesApp() {
     if (s.isBufferStalled || s.isFlushing || s.isBSOD) return;
 
     audio.ensureContext();
-    const generated = calculateBytesPerProcess(s);
+    let generated = calculateBytesPerProcess(s);
+    if (isTurboActive) {
+      generated *= 2;
+    }
+
     const heatAdded = calculateHeatPerProcess(s);
     const ramCost = calculateRamCost(generated);
 
@@ -284,6 +368,13 @@ export function CrazyGamesApp() {
       <ThermalGrainOverlay heat={depthState.heat} isBSOD={depthState.isBSOD} />
       <ThermalWarningOverlay heat={depthState.heat} isBSOD={depthState.isBSOD} />
 
+      {/* Rewarded Ad Modal */}
+      <RewardedAdModal
+        adState={adModalState}
+        onReward={handleClaimAdReward}
+        onClose={() => setAdModalState((prev) => ({ ...prev, isOpen: false }))}
+      />
+
       {/* High-Impact Arcade Title Screen or Active Arcade Desktop */}
       {gameState === 'intro' ? (
         <div className="absolute inset-0 z-50 flex flex-col items-center justify-center p-6 bg-gradient-to-b from-black/90 via-[#070e1c]/95 to-black/95 backdrop-blur-xl font-mono text-center">
@@ -345,20 +436,36 @@ export function CrazyGamesApp() {
             onPurchaseUpgrade={handlePurchaseUpgrade}
             onToggle3DView={() => setIs3DActive((prev) => !prev)}
             is3DActive={is3DActive}
+            onTriggerRewardedAd={handleTriggerRewardedAd}
+            isTurboActive={isTurboActive}
+            turboTimeRemaining={turboTimeRemaining}
+            isDoubleFlushActive={isDoubleFlushActive}
           />
         </div>
       )}
 
-      {/* BSOD Crash Screen with Instant Fast Reboot Button */}
+      {/* BSOD Crash Screen with Fast Reboot + Rewarded Revive */}
       {depthState.isBSOD && (
         <div className="absolute inset-0 z-50 pointer-events-auto">
           <BSODOverlay countdown={depthState.bsodCountdown} />
-          <div className="absolute bottom-8 left-1/2 -translate-x-1/2 z-50">
+          <div className="absolute bottom-8 left-1/2 -translate-x-1/2 z-50 flex flex-col sm:flex-row items-center gap-3">
             <button
               onClick={handleFastReboot}
-              className="px-8 py-3.5 bg-white hover:bg-cyan-200 text-blue-900 font-mono font-black text-xs sm:text-sm uppercase tracking-widest rounded-xl shadow-2xl transition-all animate-bounce active:scale-95 border-2 border-white"
+              className="px-6 py-3.5 bg-white hover:bg-cyan-200 text-blue-900 font-mono font-black text-xs sm:text-sm uppercase tracking-widest rounded-xl shadow-2xl transition-all active:scale-95 border-2 border-white"
             >
-              ⚡ FAST REBOOT SILICON [SPACE]
+              ⚡ FAST REBOOT [SPACE]
+            </button>
+            <button
+              onClick={() =>
+                handleTriggerRewardedAd(
+                  'bsod_revive',
+                  'EMERGENCY RECOVERY PROTOCOL',
+                  'Revive with 100% Volatile Cash Saved & Cool Core'
+                )
+              }
+              className="px-6 py-3.5 bg-gradient-to-r from-amber-400 to-yellow-300 hover:from-amber-300 hover:to-yellow-200 text-black font-mono font-black text-xs sm:text-sm uppercase tracking-widest rounded-xl shadow-[0_0_25px_rgba(251,191,36,0.9)] transition-all active:scale-95 border-2 border-yellow-200 flex items-center gap-2"
+            >
+              <span>🛡️ REVIVE & SAVE CASH [AD]</span>
             </button>
           </div>
         </div>
