@@ -32,11 +32,13 @@ CrazyGames reviewers test hundreds of titles and evaluate them rigorously on:
 ## 3. Rewarded-Ad Monetization Model (Player-Choice Driven)
 
 Adhering strictly to CrazyGames developer policies:
-1. **🚀 2X Next Flush**: Allows players to watch a short ad to double their next cash bankout (turning high volatile yields into enormous banked windfalls).
-2. **❄️ Liquid Nitrogen Dump**: Provides an emergency full sub-zero cool down to 25.0°C without waiting for Cryo Vent cooldown.
-3. **⚡ 30s Turbo Overclock**: Doubles byte mining yield for 30 seconds to accelerate hardware purchases.
-4. **🛡️ BSOD Revive**: When an overheat meltdown occurs, players can watch an ad to instantly recover with 100% of their volatile memory saved.
-5. **CrazyGames SDK Integration**: Connects dynamically to `window.CrazyGames.SDK.ad.requestAd('rewarded')` when live on the CrazyGames platform, while providing a clean 5-second arcade interactive fallback during preview.
+1. **🚀 2X Next Flush**: Pre-arms the system to double the next cash bankout (turning high volatile yields into enormous windfalls).
+2. **💰 Post-Flush 2X Payout Toast**: For flushes ≥ $35, a subtle, non-intrusive bottom toast offers to watch an ad and double the recent cash dividend directly into the bank.
+3. **⚡ 2X Mission Claim Bonus**: Every completed milestone in the top quest bar offers standard 1-tap claim or an optional `[🚀 2X (AD)]` button.
+4. **❄️ Liquid Nitrogen Dump**: Provides an emergency full sub-zero cool down to 25.0°C without waiting for Cryo Vent cooldown.
+5. **⚡ 30s Turbo Overclock**: Doubles byte mining yield for 30 seconds to accelerate early hardware purchases.
+6. **🛡️ BSOD Revive**: When an overheat meltdown occurs, players can watch an ad to instantly recover with 100% of their volatile memory saved.
+7. **CrazyGames SDK Integration**: Connects dynamically to `window.CrazyGames.SDK.ad.requestAd('rewarded')` when live on the CrazyGames platform, while providing a clean 5-second arcade interactive fallback during preview.
 
 ---
 

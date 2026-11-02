@@ -99,9 +99,10 @@ export const CrazyGamesDesktop: React.FC<CrazyGamesDesktopProps> = ({
   ]);
 
   const [currentObjIndex, setCurrentObjIndex] = useState<number>(0);
+  const [postFlushBonus, setPostFlushBonus] = useState<{ amount: number; visible: boolean } | null>(null);
   const prevBankedRef = useRef<number>(state.bankedBytes);
 
-  // Detect cash flush payout and trigger celebration popup
+  // Detect cash flush payout and trigger celebration popup + optional double prompt
   useEffect(() => {
     if (state.bankedBytes > prevBankedRef.current) {
       const diff = state.bankedBytes - prevBankedRef.current;
@@ -123,6 +124,14 @@ export const CrazyGamesDesktop: React.FC<CrazyGamesDesktopProps> = ({
         setTimeout(() => {
           setFloatingItems((prev) => prev.filter((item) => item.id !== id));
         }, 1100);
+
+        // Offer non-intrusive 2x double for large flushes
+        if (diff >= 35) {
+          setPostFlushBonus({ amount: diff, visible: true });
+          setTimeout(() => {
+            setPostFlushBonus(null);
+          }, 8000);
+        }
       }
     }
     prevBankedRef.current = state.bankedBytes;
@@ -282,6 +291,26 @@ export const CrazyGamesDesktop: React.FC<CrazyGamesDesktopProps> = ({
     }
   };
 
+  const handleClaimActiveObjectiveDouble = () => {
+    const cur = objectives[currentObjIndex];
+    if (!cur || !cur.completed || cur.claimed) return;
+
+    onTriggerRewardedAd(
+      'milestone_double',
+      'DOUBLE MISSION REWARD',
+      `Claim 2X Cash: +$${(cur.rewardBytes * 2).toLocaleString()}!`,
+      cur.rewardBytes
+    );
+
+    setObjectives((prev) =>
+      prev.map((obj, i) => (i === currentObjIndex ? { ...obj, claimed: true } : obj))
+    );
+
+    if (currentObjIndex < objectives.length - 1) {
+      setCurrentObjIndex((prev) => prev + 1);
+    }
+  };
+
   const handleSkipOnboarding = () => {
     setOnboardingStage('completed');
     try {
@@ -332,6 +361,7 @@ export const CrazyGamesDesktop: React.FC<CrazyGamesDesktopProps> = ({
         stepIndex={currentObjIndex}
         totalSteps={objectives.length}
         onClaim={handleClaimActiveObjective}
+        onClaimDouble={handleClaimActiveObjectiveDouble}
       />
 
       {/* Main Arcade Cockpit Layout */}
@@ -735,6 +765,42 @@ export const CrazyGamesDesktop: React.FC<CrazyGamesDesktopProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Non-intrusive Post-Flush Double Offer Toast */}
+      {postFlushBonus?.visible && (
+        <div className="fixed bottom-24 right-4 sm:right-6 z-40 max-w-sm bg-[#0a1222]/95 border-2 border-amber-400 p-4 rounded-2xl shadow-2xl backdrop-blur-xl animate-in slide-in-from-right-4 duration-200 ring-2 ring-amber-400/30">
+          <div className="flex items-center justify-between gap-3 pb-2 border-b border-gray-800">
+            <div className="text-xs text-white font-black flex items-center gap-1.5">
+              <span>💰</span>
+              <span>CASH FLUSH COMPLETED!</span>
+            </div>
+            <button
+              onClick={() => setPostFlushBonus(null)}
+              className="text-[10px] text-gray-400 hover:text-white px-1.5 py-0.5 rounded border border-gray-700 hover:border-gray-500"
+            >
+              ✕
+            </button>
+          </div>
+          <p className="mt-2 text-xs text-gray-300">
+            You successfully banked <strong className="text-emerald-400">+${postFlushBonus.amount.toLocaleString()}</strong>. Double it right now?
+          </p>
+          <button
+            onClick={() => {
+              const bonus = postFlushBonus.amount;
+              setPostFlushBonus(null);
+              onTriggerRewardedAd(
+                'post_flush_double',
+                'DOUBLE RECENT FLUSH',
+                `Credit +$${bonus.toLocaleString()} bonus directly into your Bank!`,
+                bonus
+              );
+            }}
+            className="w-full mt-3 py-2.5 bg-gradient-to-r from-amber-400 via-yellow-300 to-amber-400 hover:from-amber-300 hover:to-yellow-200 text-black text-xs font-black uppercase tracking-wider rounded-xl shadow-lg transition-transform active:scale-95 flex items-center justify-center gap-1.5"
+          >
+            <span>🚀 WATCH AD TO DOUBLE (+${postFlushBonus.amount.toLocaleString()})</span>
+          </button>
+        </div>
+      )}
 
       {/* Guided Coachmarks */}
       <CrazyGamesOnboardingOverlay

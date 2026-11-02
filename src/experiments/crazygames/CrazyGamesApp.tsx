@@ -223,6 +223,18 @@ export function CrazyGamesApp() {
         bsodCountdown: 0,
         isBufferStalled: false,
       }));
+    } else if (adModalState.type === 'milestone_double') {
+      const bonus = (adModalState.payoutBonus || 50) * 2;
+      setDepthState((prev) => ({
+        ...prev,
+        bankedBytes: prev.bankedBytes + bonus,
+      }));
+    } else if (adModalState.type === 'post_flush_double') {
+      const bonus = adModalState.payoutBonus || 50;
+      setDepthState((prev) => ({
+        ...prev,
+        bankedBytes: prev.bankedBytes + bonus,
+      }));
     }
   };
 

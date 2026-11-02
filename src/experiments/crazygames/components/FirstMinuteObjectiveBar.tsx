@@ -6,6 +6,7 @@ interface FirstMinuteObjectiveBarProps {
   stepIndex: number;
   totalSteps: number;
   onClaim: () => void;
+  onClaimDouble?: () => void;
 }
 
 export const FirstMinuteObjectiveBar: React.FC<FirstMinuteObjectiveBarProps> = ({
@@ -13,6 +14,7 @@ export const FirstMinuteObjectiveBar: React.FC<FirstMinuteObjectiveBarProps> = (
   stepIndex,
   totalSteps,
   onClaim,
+  onClaimDouble,
 }) => {
   if (!objective) return null;
 
@@ -60,13 +62,23 @@ export const FirstMinuteObjectiveBar: React.FC<FirstMinuteObjectiveBarProps> = (
       {/* Right: Claim or Reward Bounty Button */}
       <div>
         {objective.completed && !objective.claimed ? (
-          <button
-            onClick={onClaim}
-            className="px-5 py-2 bg-gradient-to-r from-emerald-400 via-emerald-500 to-cyan-400 hover:from-emerald-300 hover:to-cyan-300 text-black font-black text-xs uppercase tracking-wider rounded-lg shadow-[0_0_20px_rgba(16,185,129,0.9)] animate-bounce transition-transform active:scale-90 flex items-center gap-2 ring-2 ring-emerald-300"
-          >
-            <span>CLAIM +${objective.rewardBytes} CASH</span>
-            <span className="text-sm">⚡</span>
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={onClaim}
+              className="px-4 py-2 bg-gradient-to-r from-emerald-400 to-cyan-400 hover:from-emerald-300 hover:to-cyan-300 text-black font-black text-xs uppercase tracking-wider rounded-lg shadow-[0_0_15px_rgba(16,185,129,0.7)] transition-transform active:scale-95"
+            >
+              CLAIM +${objective.rewardBytes}
+            </button>
+            {onClaimDouble && (
+              <button
+                onClick={onClaimDouble}
+                className="px-3.5 py-2 bg-gradient-to-r from-amber-400 to-yellow-300 hover:from-amber-300 hover:to-yellow-200 text-black font-black text-xs uppercase tracking-wider rounded-lg shadow-[0_0_20px_rgba(251,191,36,0.9)] animate-bounce transition-transform active:scale-90 flex items-center gap-1.5 ring-2 ring-amber-300"
+              >
+                <span>🚀 2X: +${objective.rewardBytes * 2}</span>
+                <span className="text-[10px] bg-black/20 px-1 rounded font-mono">AD</span>
+              </button>
+            )}
+          </div>
         ) : (
           <div className="text-xs text-emerald-400 font-bold tracking-wider uppercase flex items-center gap-1.5 bg-black/50 px-3 py-1 rounded border border-emerald-500/30">
             <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
