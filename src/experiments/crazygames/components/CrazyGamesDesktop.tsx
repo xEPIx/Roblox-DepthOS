@@ -327,6 +327,18 @@ export const CrazyGamesDesktop: React.FC<CrazyGamesDesktopProps> = ({
 
   const handleBuyUpgrade = (type: 'cpu' | 'ram' | 'cooling' | 'bus' | 'paste') => {
     onPurchaseUpgrade(type);
+    audio.ensureContext();
+    audio.playUpgradeSound();
+
+    try {
+      confetti({
+        particleCount: 25,
+        spread: 45,
+        origin: { x: 0.85, y: 0.5 },
+        colors: ['#00e5ff', '#38bdf8', '#a855f7'],
+      });
+    } catch {}
+
     const id = nextIdRef.current++;
     const label = type === 'cpu' ? 'CPU CLOCK' : type === 'ram' ? 'RAM BUFFER' : type === 'cooling' ? 'COOLING FAN' : 'PCIE BUS';
     setFloatingItems((prev) => [
