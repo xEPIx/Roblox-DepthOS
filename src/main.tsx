@@ -5,42 +5,33 @@ import CrazyGamesApp from './experiments/crazygames/CrazyGamesApp.tsx';
 import './index.css';
 
 function RootEntry() {
-  const [mode, setMode] = useState<'crazygames' | 'production'>(() => {
+  const [showProduction, setShowProduction] = useState<boolean>(() => {
     try {
       const urlParams = new URLSearchParams(window.location.search);
-      if (urlParams.get('mode') === 'production') return 'production';
-      return (localStorage.getItem('depthos_active_mode') as 'production') || 'crazygames';
+      return urlParams.get('mode') === 'production';
     } catch {
-      return 'crazygames';
+      return false;
     }
   });
 
-  const toggleMode = () => {
-    const next = mode === 'crazygames' ? 'production' : 'crazygames';
-    setMode(next);
-    try {
-      localStorage.setItem('depthos_active_mode', next);
-    } catch {}
-  };
-
   return (
     <>
-      {mode === 'crazygames' ? <CrazyGamesApp /> : <App />}
+      {showProduction ? <App /> : <CrazyGamesApp />}
 
-      {/* Non-intrusive Mode Switcher Badge for Preview Testing */}
+      {/* Development & Review Comparison Switcher */}
       <div className="fixed top-2 right-2 z-[9999] pointer-events-auto">
         <button
-          onClick={toggleMode}
+          onClick={() => setShowProduction((prev) => !prev)}
           title="Toggle between CrazyGames Edition and Original Production Game"
           className="px-2.5 py-1 text-[10px] font-mono font-bold uppercase rounded border backdrop-blur-md transition-all shadow-lg flex items-center gap-1.5 bg-black/80 hover:bg-black text-gray-300 border-gray-700 hover:border-cyan-400"
         >
           <span
             className={`w-2 h-2 rounded-full ${
-              mode === 'crazygames' ? 'bg-cyan-400 animate-pulse' : 'bg-emerald-400'
+              !showProduction ? 'bg-cyan-400 animate-pulse' : 'bg-emerald-400'
             }`}
           />
-          <span>{mode === 'crazygames' ? 'CRAZYGAMES BUILD' : 'PRODUCTION BUILD'}</span>
-          <span className="text-[9px] text-gray-400 opacity-70">[SWITCH]</span>
+          <span>{!showProduction ? 'CRAZYGAMES BUILD (DEFAULT)' : 'PRODUCTION BUILD'}</span>
+          <span className="text-[9px] text-gray-400 opacity-70">[COMPARE]</span>
         </button>
       </div>
     </>

@@ -166,6 +166,8 @@ export const CrazyGamesDesktop: React.FC<CrazyGamesDesktopProps> = ({
   // Calculations
   const surgeThreshold = getSurgeThreshold(state.rootTree);
   const inSurge = state.heat >= surgeThreshold && state.heat < CRITICAL_TEMP && !state.isBSOD;
+  const isNearMeltdown = state.heat >= 95.0 && !state.isBSOD;
+  const isFirstClickPending = objectives[0]?.current === 0;
   const thermalMult = calculateThermalMultiplier(state.heat, state.rootTree, state.faction);
   const bytesPerClick = calculateBytesPerProcess(state);
   const heatPerClick = calculateHeatPerProcess(state);
@@ -444,12 +446,16 @@ export const CrazyGamesDesktop: React.FC<CrazyGamesDesktopProps> = ({
 
         {/* Center Column: Big Tactile Action Core (Process & Flush) */}
         <div className="lg:col-span-5 flex flex-col justify-center items-center gap-4 sm:gap-6">
-          {/* Surge Warning Prompt */}
-          {inSurge && (
-            <div className="w-full max-w-sm py-2 px-3 bg-red-950/80 border-2 border-red-500 text-red-200 text-center text-xs font-black uppercase rounded-xl animate-pulse shadow-[0_0_20px_rgba(239,68,68,0.5)]">
-              ⚠️ SURGE MULTIPLIER ACTIVE! HOLD [F] BEFORE 100°C MELTDOWN!
+          {/* Near Meltdown & Surge Warning Prompts */}
+          {isNearMeltdown ? (
+            <div className="w-full max-w-sm py-2 px-3 bg-red-950 border-2 border-red-500 text-red-100 text-center text-xs font-black uppercase rounded-xl animate-pulse shadow-[0_0_25px_rgba(239,68,68,0.9)] ring-2 ring-red-400">
+              💀 95°C CRITICAL MELTDOWN DANGER! HOLD [F] TO CASH OUT BEFORE BSOD!
             </div>
-          )}
+          ) : inSurge ? (
+            <div className="w-full max-w-sm py-2 px-3 bg-amber-950/90 border-2 border-amber-400 text-amber-200 text-center text-xs font-black uppercase rounded-xl animate-pulse shadow-[0_0_20px_rgba(251,191,36,0.6)]">
+              🔥 SURGE ACTIVE: {thermalMult.toFixed(1)}X CASH! HOLD [F] BEFORE 100°C!
+            </div>
+          ) : null}
 
           {/* Primary Action Button: Process Bytes Core */}
           <div className="w-full flex flex-col items-center">
@@ -458,22 +464,28 @@ export const CrazyGamesDesktop: React.FC<CrazyGamesDesktopProps> = ({
               disabled={state.isBufferStalled || state.isFlushing || state.isBSOD}
               className={`w-full max-w-sm aspect-square sm:aspect-[4/3] rounded-3xl flex flex-col items-center justify-center p-6 border-4 transition-all duration-100 transform active:scale-90 ${
                 state.isBufferStalled
-                  ? 'bg-amber-950/90 border-amber-500 text-amber-200 shadow-[0_0_40px_rgba(245,158,11,0.6)] animate-pulse'
+                  ? 'bg-amber-950/90 border-amber-500 text-amber-200 shadow-[0_0_40px_rgba(245,158,11,0.6)] animate-pulse ring-4 ring-amber-400/50'
+                  : isNearMeltdown
+                  ? 'bg-red-950 border-red-500 text-red-100 shadow-[0_0_60px_rgba(239,68,68,1)] animate-pulse ring-4 ring-red-500'
                   : state.isFlushing
                   ? 'bg-cyan-950/60 border-cyan-700 text-cyan-300 cursor-wait'
                   : inSurge
                   ? 'bg-gradient-to-br from-amber-600/40 via-red-900/60 to-black border-amber-400 text-amber-200 shadow-[0_0_60px_rgba(251,191,36,0.7)] hover:scale-102 ring-4 ring-amber-400/40'
                   : isProcessActive
                   ? 'bg-cyan-400/30 border-cyan-200 text-white scale-95 shadow-[0_0_35px_rgba(6,182,212,0.8)]'
+                  : isFirstClickPending
+                  ? 'bg-[#0f1b32] hover:bg-[#162747] border-cyan-400 text-white shadow-[0_0_45px_rgba(6,182,212,0.6)] ring-4 ring-cyan-400/80 animate-pulse hover:scale-102'
                   : 'bg-[#0f1b32] hover:bg-[#162747] border-cyan-400 text-white shadow-[0_0_35px_rgba(6,182,212,0.3)] hover:scale-102'
               }`}
             >
               <div className="text-5xl sm:text-6xl mb-2">
-                {state.isBufferStalled ? '⚠️' : inSurge ? '🔥' : '⚡'}
+                {state.isBufferStalled ? '⚠️' : isNearMeltdown ? '💀' : inSurge ? '🔥' : '⚡'}
               </div>
               <h2 className="text-2xl sm:text-3xl font-black uppercase tracking-wider text-center">
                 {state.isBufferStalled
                   ? 'RAM FULL! FLUSH NOW'
+                  : isNearMeltdown
+                  ? 'CRITICAL HEAT! FLUSH'
                   : state.isFlushing
                   ? 'BANKING CASH...'
                   : 'MINE BYTES'}
@@ -481,10 +493,16 @@ export const CrazyGamesDesktop: React.FC<CrazyGamesDesktopProps> = ({
               <span className="text-xs sm:text-sm text-cyan-300 font-black mt-1">
                 {state.isBufferStalled
                   ? 'Hold [F] below to dump RAM into Bank!'
+                  : isNearMeltdown
+                  ? 'Meltdown imminent! Hold [F] to cash out!'
+                  : inSurge
+                  ? `+${bytesPerClick} Bytes (${thermalMult.toFixed(1)}X SURGE ACTIVE!)`
                   : `+${bytesPerClick} Bytes / +${heatPerClick.toFixed(1)}°C per Click`}
               </span>
               <span className="mt-3 text-[11px] font-mono bg-black/70 px-4 py-1 rounded-full border border-white/20 text-gray-200 font-bold">
-                TAP [SPACE] OR CLICK
+                {isFirstClickPending
+                  ? '⚡ CLICK HERE OR TAP [SPACE] TO START'
+                  : 'TAP [SPACE] OR CLICK'}
               </span>
             </button>
           </div>
