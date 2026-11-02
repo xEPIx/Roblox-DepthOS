@@ -306,3 +306,6 @@ export function CrazyGamesApp() {
     </div>
   );
 }
+
+export default CrazyGamesApp;
+
