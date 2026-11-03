@@ -20,6 +20,7 @@ import { CrazyGamesDesktop } from './components/CrazyGamesDesktop';
 import { RewardedAdModal } from './components/RewardedAdModal';
 import { RewardedAdState, RewardedAdType, FlushEvent } from './types';
 import { initCrazyGamesSdk } from './crazyGamesSdk';
+import { getAdCooldownRemaining, isAdOnCooldown, setAdCooldownExpiry } from './adPacing';
 import { BSODOverlay } from '../../components/BSODOverlay';
 import { ThermalGrainOverlay } from '../../components/ThermalGrainOverlay';
 import { ThermalWarningOverlay } from '../../components/ThermalWarningOverlay';
@@ -63,6 +64,15 @@ export function CrazyGamesApp() {
   const [isDoubleFlushActive, setIsDoubleFlushActive] = useState<boolean>(false);
   const [isTurboActive, setIsTurboActive] = useState<boolean>(false);
   const [turboTimeRemaining, setTurboTimeRemaining] = useState<number>(0);
+
+  // Ad Pacing & Cooldown state
+  const [adCooldowns, setAdCooldowns] = useState<Record<string, number>>({});
+  const adCooldownsRef = useRef<Record<string, number>>({});
+  adCooldownsRef.current = adCooldowns;
+
+  const getCooldownRemaining = useCallback((type: RewardedAdType) => {
+    return getAdCooldownRemaining(type, adCooldownsRef.current);
+  }, []);
 
   // Payout lineage & BSOD crash cash and RAM recovery refs
   const [lastFlushEvent, setLastFlushEvent] = useState<FlushEvent | null>(null);
@@ -274,7 +284,7 @@ export function CrazyGamesApp() {
     setGameState('playing');
   };
 
-  // Rewarded Ad Trigger Handler - Issues a unique attempt token per ad request
+  // Rewarded Ad Trigger Handler - Issues a unique attempt token per ad request and enforces cooldown pacing
   const handleTriggerRewardedAd = useCallback((
     type: RewardedAdType,
     title: string,
@@ -282,6 +292,15 @@ export function CrazyGamesApp() {
     bonus?: number,
     onSuccess?: () => void
   ) => {
+    // Cooldown pacing guard
+    if (isAdOnCooldown(type, adCooldownsRef.current)) {
+      console.warn('[AdPacing] Ad offer is currently on cooldown:', type);
+      return;
+    }
+
+    // Enforce cooldown timestamp
+    setAdCooldowns((prev) => setAdCooldownExpiry(type, prev));
+
     const attemptId = `cg_ad_${Date.now()}_${nextAttemptIndexRef.current++}_${Math.random().toString(36).slice(2, 8)}`;
     setAdModalState({
       isOpen: true,
@@ -605,6 +624,8 @@ export function CrazyGamesApp() {
             turboTimeRemaining={turboTimeRemaining}
             isDoubleFlushActive={isDoubleFlushActive}
             lastFlushEvent={lastFlushEvent}
+            adCooldowns={adCooldowns}
+            getCooldownRemaining={getCooldownRemaining}
           />
         </div>
       )}
@@ -620,28 +641,42 @@ export function CrazyGamesApp() {
             >
               ⚡ FAST REBOOT [SPACE]
             </button>
-            <button
-              onClick={() => {
-                const lost = lostVolatileOnCrashRef.current;
-                const rewardDesc =
-                  lost > 0
-                    ? `Revive with +$${lost.toLocaleString()} unbanked cash restored, buffer recovered & 35.0°C cool core`
-                    : 'Instant Reboot with 35.0°C Sub-Zero cool core';
-                handleTriggerRewardedAd(
-                  'bsod_revive',
-                  'EMERGENCY RECOVERY PROTOCOL',
-                  rewardDesc,
-                  lost
-                );
-              }}
-              className="px-6 py-3.5 bg-gradient-to-r from-amber-400 to-yellow-300 hover:from-amber-300 hover:to-yellow-200 text-black font-mono font-black text-xs sm:text-sm uppercase tracking-widest rounded-xl shadow-[0_0_25px_rgba(251,191,36,0.9)] transition-all active:scale-95 border-2 border-yellow-200 flex items-center gap-2"
-            >
-              <span>
-                {lostVolatileOnCrashRef.current > 0
-                  ? `🛡️ REVIVE & RESTORE +$${lostVolatileOnCrashRef.current.toLocaleString()} [AD]`
-                  : '🛡️ INSTANT REVIVE & COOL [AD]'}
-              </span>
-            </button>
+            {(() => {
+              const isReviveOnCd = isAdOnCooldown('bsod_revive', adCooldowns);
+              const cdRemaining = getAdCooldownRemaining('bsod_revive', adCooldowns);
+              return (
+                <button
+                  disabled={isReviveOnCd}
+                  onClick={() => {
+                    if (isReviveOnCd) return;
+                    const lost = lostVolatileOnCrashRef.current;
+                    const rewardDesc =
+                      lost > 0
+                        ? `Revive with +$${lost.toLocaleString()} unbanked cash restored, buffer recovered & 35.0°C cool core`
+                        : 'Instant Reboot with 35.0°C Sub-Zero cool core';
+                    handleTriggerRewardedAd(
+                      'bsod_revive',
+                      'EMERGENCY RECOVERY PROTOCOL',
+                      rewardDesc,
+                      lost
+                    );
+                  }}
+                  className={`px-6 py-3.5 font-mono font-black text-xs sm:text-sm uppercase tracking-widest rounded-xl transition-all active:scale-95 border-2 flex items-center gap-2 ${
+                    isReviveOnCd
+                      ? 'bg-gray-800 border-gray-600 text-gray-400 cursor-not-allowed opacity-60'
+                      : 'bg-gradient-to-r from-amber-400 to-yellow-300 hover:from-amber-300 hover:to-yellow-200 text-black shadow-[0_0_25px_rgba(251,191,36,0.9)] border-yellow-200'
+                  }`}
+                >
+                  <span>
+                    {isReviveOnCd
+                      ? `🛡️ REVIVE ON COOLDOWN (${cdRemaining}s)`
+                      : lostVolatileOnCrashRef.current > 0
+                      ? `🛡️ REVIVE & RESTORE +$${lostVolatileOnCrashRef.current.toLocaleString()} [AD]`
+                      : '🛡️ INSTANT REVIVE & COOL [AD]'}
+                  </span>
+                </button>
+              );
+            })()}
           </div>
         </div>
       )}

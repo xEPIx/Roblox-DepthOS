@@ -3,6 +3,8 @@ import { RewardedAdState } from '../types';
 import { audio } from '../../../audio/depthosAudio';
 import { ensureCrazyGamesSdkReady, isCrazyGamesAdAvailable } from '../crazyGamesSdk';
 
+export const REQUEST_TIMEOUT_MS = 8000;
+
 interface RewardedAdModalProps {
   adState: RewardedAdState;
   onReward: (attemptId: string) => void;
@@ -30,6 +32,8 @@ export const RewardedAdModal: React.FC<RewardedAdModalProps> = ({
   const activeAttemptIdRef = useRef<string | null>(null);
   // Guarantee each attemptId is granted at most once
   const grantedAttemptIdsRef = useRef<Set<string>>(new Set());
+  // Request watchdog timer ref (ensures requests that never start playback fail safely)
+  const requestWatchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Keep latest callbacks in refs to prevent unnecessary effect re-executions
   const onRewardRef = useRef(onReward);
@@ -40,6 +44,13 @@ export const RewardedAdModal: React.FC<RewardedAdModalProps> = ({
   onPlaybackStateChangeRef.current = onPlaybackStateChange;
   const onAttemptActiveChangeRef = useRef(onAttemptActiveChange);
   onAttemptActiveChangeRef.current = onAttemptActiveChange;
+
+  const clearRequestWatchdog = useCallback(() => {
+    if (requestWatchdogRef.current) {
+      clearTimeout(requestWatchdogRef.current);
+      requestWatchdogRef.current = null;
+    }
+  }, []);
 
   // Single-grant reward executor with attempt token verification
   const grantRewardOnce = useCallback((attemptId: string) => {
@@ -59,8 +70,9 @@ export const RewardedAdModal: React.FC<RewardedAdModalProps> = ({
     onRewardRef.current(attemptId);
   }, []);
 
-  // Safe dismiss with audio restoration and state cleanup
+  // Safe dismiss with audio restoration, watchdog clearing, and state cleanup
   const handleDismiss = useCallback(() => {
+    clearRequestWatchdog();
     // Invalidate active attempt immediately so any delayed SDK callbacks are dropped
     activeAttemptIdRef.current = null;
     if (onPlaybackStateChangeRef.current) {
@@ -71,10 +83,12 @@ export const RewardedAdModal: React.FC<RewardedAdModalProps> = ({
     }
     audio.setMuted(prevMutedRef.current);
     onCloseRef.current();
-  }, []);
+  }, [clearRequestWatchdog]);
 
   // Ad Lifecycle Effect
   useEffect(() => {
+    clearRequestWatchdog();
+
     if (!adState.isOpen || !adState.attemptId) {
       // Modal closed: invalidate attempt, signal stopped playback and inactive attempt
       activeAttemptIdRef.current = null;
@@ -131,9 +145,31 @@ export const RewardedAdModal: React.FC<RewardedAdModalProps> = ({
 
       setAdStatus('requesting');
 
+      // Start bounded watchdog timer: if SDK never calls adStarted, adFinished, or adError,
+      // fail safely without blocking the user or granting rewards.
+      requestWatchdogRef.current = setTimeout(() => {
+        if (!isSubscribed || activeAttemptIdRef.current !== currentAttemptId) {
+          return;
+        }
+        console.warn('[AdModal] Ad request timed out before playback started.');
+        // Invalidate attempt immediately
+        activeAttemptIdRef.current = null;
+        if (onPlaybackStateChangeRef.current) {
+          onPlaybackStateChangeRef.current(false);
+        }
+        if (onAttemptActiveChangeRef.current) {
+          onAttemptActiveChangeRef.current(false);
+        }
+        setAdStatus('error');
+        audio.setMuted(prevMutedRef.current);
+        setErrorMessage('Ad request timed out before playback started. Please check connection and try again.');
+      }, REQUEST_TIMEOUT_MS);
+
       try {
         window.CrazyGames!.SDK!.ad!.requestAd('rewarded', {
           adStarted: () => {
+            // Once playback begins, clear request watchdog. Long-running ads play to completion.
+            clearRequestWatchdog();
             if (!isSubscribed || activeAttemptIdRef.current !== currentAttemptId) {
               return;
             }
@@ -143,6 +179,7 @@ export const RewardedAdModal: React.FC<RewardedAdModalProps> = ({
             }
           },
           adFinished: () => {
+            clearRequestWatchdog();
             // ONLY adFinished on active attempt grants the reward
             if (!isSubscribed || activeAttemptIdRef.current !== currentAttemptId) {
               return;
@@ -159,6 +196,7 @@ export const RewardedAdModal: React.FC<RewardedAdModalProps> = ({
             onCloseRef.current();
           },
           adError: (err) => {
+            clearRequestWatchdog();
             // NEVER grant reward on error or dismissal. Immediately settle attempt token.
             if (!isSubscribed || activeAttemptIdRef.current !== currentAttemptId) {
               return;
@@ -182,6 +220,7 @@ export const RewardedAdModal: React.FC<RewardedAdModalProps> = ({
           },
         });
       } catch (err) {
+        clearRequestWatchdog();
         if (isSubscribed && activeAttemptIdRef.current === currentAttemptId) {
           activeAttemptIdRef.current = null;
           if (onPlaybackStateChangeRef.current) {
@@ -199,6 +238,7 @@ export const RewardedAdModal: React.FC<RewardedAdModalProps> = ({
 
     return () => {
       isSubscribed = false;
+      clearRequestWatchdog();
       // Invalidate attempt on unmount/cleanup
       if (activeAttemptIdRef.current === currentAttemptId) {
         activeAttemptIdRef.current = null;
@@ -212,7 +252,7 @@ export const RewardedAdModal: React.FC<RewardedAdModalProps> = ({
       // Always restore player's prior audio mute preference on unmount/cleanup
       audio.setMuted(prevMutedRef.current);
     };
-  }, [adState.isOpen, adState.attemptId, grantRewardOnce]);
+  }, [adState.isOpen, adState.attemptId, grantRewardOnce, clearRequestWatchdog]);
 
   // 2. Return early strictly AFTER all hooks are called
   if (!adState.isOpen) return null;
@@ -287,7 +327,9 @@ export const RewardedAdModal: React.FC<RewardedAdModalProps> = ({
             </div>
             <div className="mt-3 text-xs text-amber-300 font-bold flex items-center gap-2 bg-black/60 px-3 py-1 rounded-full border border-amber-500/40">
               <span className="w-2 h-2 rounded-full bg-amber-400 animate-spin" />
-              <span>Playing ad via CrazyGames SDK...</span>
+              <span>
+                {adStatus === 'requesting' ? 'Requesting ad from CrazyGames...' : 'Playing ad via CrazyGames SDK...'}
+              </span>
             </div>
           </div>
         )}

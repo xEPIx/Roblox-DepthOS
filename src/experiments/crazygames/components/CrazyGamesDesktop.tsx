@@ -17,6 +17,7 @@ import {
   CRITICAL_TEMP,
 } from '../../../game/simulation';
 import { FloatingRewardItem, ArcadeObjective, OnboardingStage, RewardedAdType, FlushEvent } from '../types';
+import { isAdOnCooldown } from '../adPacing';
 import { FloatingNumberFx } from './FloatingNumberFx';
 import { FirstMinuteObjectiveBar } from './FirstMinuteObjectiveBar';
 import { CrazyGamesOnboardingOverlay } from './CrazyGamesOnboardingOverlay';
@@ -42,6 +43,8 @@ interface CrazyGamesDesktopProps {
   turboTimeRemaining?: number;
   isDoubleFlushActive?: boolean;
   lastFlushEvent?: FlushEvent | null;
+  adCooldowns?: Record<string, number>;
+  getCooldownRemaining?: (type: RewardedAdType) => number;
 }
 
 export const CrazyGamesDesktop: React.FC<CrazyGamesDesktopProps> = ({
@@ -59,6 +62,8 @@ export const CrazyGamesDesktop: React.FC<CrazyGamesDesktopProps> = ({
   turboTimeRemaining = 0,
   isDoubleFlushActive = false,
   lastFlushEvent = null,
+  adCooldowns = {},
+  getCooldownRemaining,
 }) => {
   const [floatingItems, setFloatingItems] = useState<FloatingRewardItem[]>([]);
   const [isProcessActive, setIsProcessActive] = useState<boolean>(false);
@@ -136,7 +141,12 @@ export const CrazyGamesDesktop: React.FC<CrazyGamesDesktopProps> = ({
     // Only offer post-flush double if:
     // 1. The flush was NOT already doubled via a double-flush boost
     // 2. The base payout meets the qualifying threshold (>= 80)
-    if (!lastFlushEvent.wasAlreadyDoubled && lastFlushEvent.basePayout >= 80) {
+    // 3. Post-flush double offer is not currently on cooldown
+    if (
+      !lastFlushEvent.wasAlreadyDoubled &&
+      lastFlushEvent.basePayout >= 80 &&
+      !isAdOnCooldown('post_flush_double', adCooldowns)
+    ) {
       setPostFlushBonus({ amount: lastFlushEvent.basePayout, visible: true });
       const timer = setTimeout(() => {
         setPostFlushBonus(null);
@@ -145,7 +155,7 @@ export const CrazyGamesDesktop: React.FC<CrazyGamesDesktopProps> = ({
     } else {
       setPostFlushBonus(null);
     }
-  }, [lastFlushEvent]);
+  }, [lastFlushEvent, adCooldowns]);
 
   // Guided Coachmarks (remembers completion)
   const [onboardingStage, setOnboardingStage] = useState<OnboardingStage>(() => {
@@ -509,14 +519,26 @@ export const CrazyGamesDesktop: React.FC<CrazyGamesDesktopProps> = ({
             </button>
 
             {/* Rewarded Ad Boost: Liquid Nitrogen Dump (Appears only when heat exceeds 55°C) */}
-            {state.heat >= 55 && (
-              <button
-                onClick={() => onTriggerRewardedAd('cryo_dump', 'LIQUID NITROGEN DUMP', 'Instant Sub-Zero reset to 25.0°C')}
-                className="w-full mt-2 py-2 bg-cyan-950/40 hover:bg-cyan-900/60 border border-cyan-400/50 text-cyan-200 text-xs font-black rounded-xl flex items-center justify-center gap-1.5 transition-all active:scale-95 shadow-md animate-fade-in"
-              >
-                <span>❄️ AD BOOST: FREE NITROGEN DUMP (25°C)</span>
-              </button>
-            )}
+            {state.heat >= 55 && (() => {
+              const cd = getCooldownRemaining ? getCooldownRemaining('cryo_dump') : 0;
+              const isOnCd = cd > 0;
+              return (
+                <button
+                  disabled={isOnCd}
+                  onClick={() => {
+                    if (isOnCd) return;
+                    onTriggerRewardedAd('cryo_dump', 'LIQUID NITROGEN DUMP', 'Instant Sub-Zero reset to 25.0°C');
+                  }}
+                  className={`w-full mt-2 py-2 border text-xs font-black rounded-xl flex items-center justify-center gap-1.5 transition-all shadow-md animate-fade-in ${
+                    isOnCd
+                      ? 'bg-gray-900/60 border-gray-700 text-gray-500 cursor-not-allowed'
+                      : 'bg-cyan-950/40 hover:bg-cyan-900/60 border-cyan-400/50 text-cyan-200 active:scale-95'
+                  }`}
+                >
+                  <span>{isOnCd ? `❄️ NITROGEN DUMP (COOLDOWN ${cd}s)` : '❄️ AD BOOST: FREE NITROGEN DUMP (25°C)'}</span>
+                </button>
+              );
+            })()}
           </div>
         </div>
 
@@ -631,17 +653,35 @@ export const CrazyGamesDesktop: React.FC<CrazyGamesDesktopProps> = ({
             </button>
 
             {/* Rewarded Ad Boost: 2x Next Flush */}
-            <button
-              onClick={() => onTriggerRewardedAd('double_flush', 'DOUBLE NEXT FLUSH', '2X Cash payout on your next bank')}
-              className={`w-full mt-2.5 py-2.5 px-4 rounded-xl border text-xs font-black uppercase tracking-wider flex items-center justify-center gap-2 transition-all active:scale-95 shadow-lg ${
-                isDoubleFlushActive
-                  ? 'bg-gradient-to-r from-amber-400 to-yellow-300 text-black border-yellow-200 shadow-[0_0_20px_rgba(251,191,36,0.9)] animate-pulse ring-2 ring-amber-300'
-                  : 'bg-amber-950/50 hover:bg-amber-900/70 border-amber-500/60 text-amber-300'
-              }`}
-            >
-              <span>🚀</span>
-              <span>{isDoubleFlushActive ? '2X FLUSH BOOST ACTIVE!' : 'AD BOOST: 2X NEXT FLUSH PAYOUT'}</span>
-            </button>
+            {(() => {
+              const cd = getCooldownRemaining ? getCooldownRemaining('double_flush') : 0;
+              const isOnCd = cd > 0 && !isDoubleFlushActive;
+              return (
+                <button
+                  disabled={isDoubleFlushActive || isOnCd}
+                  onClick={() => {
+                    if (isDoubleFlushActive || isOnCd) return;
+                    onTriggerRewardedAd('double_flush', 'DOUBLE NEXT FLUSH', '2X Cash payout on your next bank');
+                  }}
+                  className={`w-full mt-2.5 py-2.5 px-4 rounded-xl border text-xs font-black uppercase tracking-wider flex items-center justify-center gap-2 transition-all shadow-lg ${
+                    isDoubleFlushActive
+                      ? 'bg-gradient-to-r from-amber-400 to-yellow-300 text-black border-yellow-200 shadow-[0_0_20px_rgba(251,191,36,0.9)] animate-pulse ring-2 ring-amber-300 cursor-default'
+                      : isOnCd
+                      ? 'bg-gray-900/60 border-gray-700 text-gray-500 cursor-not-allowed'
+                      : 'bg-amber-950/50 hover:bg-amber-900/70 border-amber-500/60 text-amber-300 active:scale-95'
+                  }`}
+                >
+                  <span>🚀</span>
+                  <span>
+                    {isDoubleFlushActive
+                      ? '2X FLUSH BOOST ACTIVE!'
+                      : isOnCd
+                      ? `2X FLUSH BOOST (${cd}s)`
+                      : 'AD BOOST: 2X NEXT FLUSH PAYOUT'}
+                  </span>
+                </button>
+              );
+            })()}
           </div>
         </div>
 
@@ -662,17 +702,35 @@ export const CrazyGamesDesktop: React.FC<CrazyGamesDesktopProps> = ({
           </div>
 
           {/* Rewarded Ad Boost: Turbo Overclock */}
-          <button
-            onClick={() => onTriggerRewardedAd('turbo_overclock', '30s TURBO OVERCLOCK', '2X Bytes per click for 30 seconds')}
-            className={`w-full py-2.5 px-3 rounded-xl border text-xs font-black uppercase tracking-wider flex items-center justify-center gap-2 transition-all active:scale-95 shadow-md ${
-              isTurboActive
-                ? 'bg-gradient-to-r from-purple-500 via-pink-500 to-cyan-400 text-black border-white shadow-[0_0_20px_rgba(168,85,247,0.9)] animate-pulse'
-                : 'bg-purple-950/50 hover:bg-purple-900/70 border-purple-500/60 text-purple-200'
-            }`}
-          >
-            <span>⚡</span>
-            <span>{isTurboActive ? `OVERCLOCK ACTIVE (${turboTimeRemaining}s)` : 'AD BOOST: 30s 2X OVERCLOCK'}</span>
-          </button>
+          {(() => {
+            const cd = getCooldownRemaining ? getCooldownRemaining('turbo_overclock') : 0;
+            const isOnCd = cd > 0 && !isTurboActive;
+            return (
+              <button
+                disabled={isTurboActive || isOnCd}
+                onClick={() => {
+                  if (isTurboActive || isOnCd) return;
+                  onTriggerRewardedAd('turbo_overclock', '30s TURBO OVERCLOCK', '2X Bytes per click for 30 seconds');
+                }}
+                className={`w-full py-2.5 px-3 rounded-xl border text-xs font-black uppercase tracking-wider flex items-center justify-center gap-2 transition-all shadow-md ${
+                  isTurboActive
+                    ? 'bg-gradient-to-r from-purple-500 via-pink-500 to-cyan-400 text-black border-white shadow-[0_0_20px_rgba(168,85,247,0.9)] animate-pulse cursor-default'
+                    : isOnCd
+                    ? 'bg-gray-900/60 border-gray-700 text-gray-500 cursor-not-allowed'
+                    : 'bg-purple-950/50 hover:bg-purple-900/70 border-purple-500/60 text-purple-200 active:scale-95'
+                }`}
+              >
+                <span>⚡</span>
+                <span>
+                  {isTurboActive
+                    ? `OVERCLOCK ACTIVE (${turboTimeRemaining}s)`
+                    : isOnCd
+                    ? `OVERCLOCK COOLDOWN (${cd}s)`
+                    : 'AD BOOST: 30s 2X OVERCLOCK'}
+                </span>
+              </button>
+            );
+          })()}
 
           {/* Upgrade Card: CPU */}
           <div
