@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { DepthOSState } from '../../types/depthos';
 import {
   createInitialDepthOSState,
@@ -35,6 +35,9 @@ export function CrazyGamesApp() {
     title: '',
     rewardLabel: '',
   });
+  const adModalStateRef = useRef<RewardedAdState>(adModalState);
+  adModalStateRef.current = adModalState;
+
   const [isDoubleFlushActive, setIsDoubleFlushActive] = useState<boolean>(false);
   const [isTurboActive, setIsTurboActive] = useState<boolean>(false);
   const [turboTimeRemaining, setTurboTimeRemaining] = useState<number>(0);
@@ -128,6 +131,11 @@ export function CrazyGamesApp() {
   // Keyboard shortcut listener for CrazyGames browser play
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Suppress gameplay keyboard inputs while a rewarded ad is open
+      if (adModalStateRef.current.isOpen) {
+        return;
+      }
+
       if (stateRef.current.isBSOD) {
         if (e.code === 'Space' || e.code === 'Enter') {
           e.preventDefault();
@@ -157,6 +165,11 @@ export function CrazyGamesApp() {
     };
 
     const handleKeyUp = (e: KeyboardEvent) => {
+      // Suppress gameplay keyup while ad modal is open
+      if (adModalStateRef.current.isOpen) {
+        return;
+      }
+
       if (e.code === 'KeyF') {
         handleCancelFlush();
       }
@@ -184,11 +197,12 @@ export function CrazyGamesApp() {
   };
 
   // Rewarded Ad Trigger Handler
-  const handleTriggerRewardedAd = (
+  const handleTriggerRewardedAd = useCallback((
     type: RewardedAdType,
     title: string,
     rewardLabel: string,
-    bonus?: number
+    bonus?: number,
+    onSuccess?: () => void
   ) => {
     setAdModalState({
       isOpen: true,
@@ -196,26 +210,28 @@ export function CrazyGamesApp() {
       title,
       rewardLabel,
       payoutBonus: bonus,
+      onSuccess,
     });
-  };
+  }, []);
 
-  // Rewarded Ad Claim Handler
-  const handleClaimAdReward = () => {
+  // Rewarded Ad Claim Handler - Guaranteed single-grant execution upon real ad completion
+  const handleClaimAdReward = useCallback(() => {
+    const currentAd = adModalStateRef.current;
     audio.ensureContext();
     audio.playUpgradeSound();
 
-    if (adModalState.type === 'double_flush') {
+    if (currentAd.type === 'double_flush') {
       setIsDoubleFlushActive(true);
-    } else if (adModalState.type === 'cryo_dump') {
+    } else if (currentAd.type === 'cryo_dump') {
       audio.playCryoVent();
       setDepthState((prev) => ({
         ...prev,
         heat: 25.0,
       }));
-    } else if (adModalState.type === 'turbo_overclock') {
+    } else if (currentAd.type === 'turbo_overclock') {
       setIsTurboActive(true);
       setTurboTimeRemaining(30);
-    } else if (adModalState.type === 'bsod_revive') {
+    } else if (currentAd.type === 'bsod_revive') {
       setDepthState((prev) => ({
         ...prev,
         isBSOD: false,
@@ -223,20 +239,35 @@ export function CrazyGamesApp() {
         bsodCountdown: 0,
         isBufferStalled: false,
       }));
-    } else if (adModalState.type === 'milestone_double') {
-      const bonus = (adModalState.payoutBonus || 50) * 2;
+    } else if (currentAd.type === 'milestone_double') {
+      const bonus = (currentAd.payoutBonus || 50) * 2;
       setDepthState((prev) => ({
         ...prev,
         bankedBytes: prev.bankedBytes + bonus,
       }));
-    } else if (adModalState.type === 'post_flush_double') {
-      const bonus = adModalState.payoutBonus || 50;
+    } else if (currentAd.type === 'post_flush_double') {
+      const bonus = currentAd.payoutBonus || 50;
       setDepthState((prev) => ({
         ...prev,
         bankedBytes: prev.bankedBytes + bonus,
       }));
     }
-  };
+
+    if (currentAd.onSuccess) {
+      currentAd.onSuccess();
+    }
+  }, []);
+
+  const handleCloseAdModal = useCallback(() => {
+    setAdModalState((prev) => ({ ...prev, isOpen: false }));
+  }, []);
+
+  const handleClaimObjectiveReward = useCallback((rewardBytes: number) => {
+    setDepthState((prev) => ({
+      ...prev,
+      bankedBytes: prev.bankedBytes + rewardBytes,
+    }));
+  }, []);
 
   // Fast reboot from 100°C Meltdown
   const handleFastReboot = () => {
@@ -384,7 +415,7 @@ export function CrazyGamesApp() {
       <RewardedAdModal
         adState={adModalState}
         onReward={handleClaimAdReward}
-        onClose={() => setAdModalState((prev) => ({ ...prev, isOpen: false }))}
+        onClose={handleCloseAdModal}
       />
 
       {/* High-Impact Arcade Title Screen or Active Arcade Desktop */}
@@ -449,6 +480,7 @@ export function CrazyGamesApp() {
             onToggle3DView={() => setIs3DActive((prev) => !prev)}
             is3DActive={is3DActive}
             onTriggerRewardedAd={handleTriggerRewardedAd}
+            onClaimObjectiveReward={handleClaimObjectiveReward}
             isTurboActive={isTurboActive}
             turboTimeRemaining={turboTimeRemaining}
             isDoubleFlushActive={isDoubleFlushActive}

@@ -30,7 +30,14 @@ interface CrazyGamesDesktopProps {
   onPurchaseUpgrade: (type: 'cpu' | 'ram' | 'cooling' | 'bus' | 'paste') => void;
   onToggle3DView?: () => void;
   is3DActive?: boolean;
-  onTriggerRewardedAd: (type: RewardedAdType, title: string, rewardLabel: string, bonus?: number) => void;
+  onTriggerRewardedAd: (
+    type: RewardedAdType,
+    title: string,
+    rewardLabel: string,
+    bonus?: number,
+    onSuccess?: () => void
+  ) => void;
+  onClaimObjectiveReward?: (rewardBytes: number) => void;
   isTurboActive?: boolean;
   turboTimeRemaining?: number;
   isDoubleFlushActive?: boolean;
@@ -46,6 +53,7 @@ export const CrazyGamesDesktop: React.FC<CrazyGamesDesktopProps> = ({
   onToggle3DView,
   is3DActive,
   onTriggerRewardedAd,
+  onClaimObjectiveReward,
   isTurboActive = false,
   turboTimeRemaining = 0,
   isDoubleFlushActive = false,
@@ -264,8 +272,12 @@ export const CrazyGamesDesktop: React.FC<CrazyGamesDesktopProps> = ({
       prev.map((obj, i) => (i === currentObjIndex ? { ...obj, claimed: true } : obj))
     );
 
-    // Credit bonus money directly
-    state.bankedBytes += cur.rewardBytes;
+    // Credit bonus money cleanly through callback
+    if (onClaimObjectiveReward) {
+      onClaimObjectiveReward(cur.rewardBytes);
+    } else {
+      state.bankedBytes += cur.rewardBytes;
+    }
 
     // Spawn celebration popup
     const id = nextIdRef.current++;
@@ -299,16 +311,18 @@ export const CrazyGamesDesktop: React.FC<CrazyGamesDesktopProps> = ({
       'milestone_double',
       'DOUBLE MISSION REWARD',
       `Claim 2X Cash: +$${(cur.rewardBytes * 2).toLocaleString()}!`,
-      cur.rewardBytes
-    );
+      cur.rewardBytes,
+      () => {
+        // Strictly only mark claimed when the rewarded ad completes successfully
+        setObjectives((prev) =>
+          prev.map((obj, i) => (i === currentObjIndex ? { ...obj, claimed: true } : obj))
+        );
 
-    setObjectives((prev) =>
-      prev.map((obj, i) => (i === currentObjIndex ? { ...obj, claimed: true } : obj))
+        if (currentObjIndex < objectives.length - 1) {
+          setCurrentObjIndex((prev) => prev + 1);
+        }
+      }
     );
-
-    if (currentObjIndex < objectives.length - 1) {
-      setCurrentObjIndex((prev) => prev + 1);
-    }
   };
 
   const handleSkipOnboarding = () => {

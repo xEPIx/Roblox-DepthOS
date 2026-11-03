@@ -45,4 +45,5 @@ export interface RewardedAdState {
   title: string;
   rewardLabel: string;
   payoutBonus?: number;
+  onSuccess?: () => void;
 }
