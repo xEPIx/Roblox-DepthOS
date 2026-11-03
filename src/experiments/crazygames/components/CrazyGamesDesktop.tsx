@@ -125,12 +125,12 @@ export const CrazyGamesDesktop: React.FC<CrazyGamesDesktopProps> = ({
           setFloatingItems((prev) => prev.filter((item) => item.id !== id));
         }, 1100);
 
-        // Offer non-intrusive 2x double for large flushes
-        if (diff >= 35) {
+        // Offer non-intrusive 2x double for large windfall flushes (anti-spam pacing)
+        if (diff >= 80) {
           setPostFlushBonus({ amount: diff, visible: true });
           setTimeout(() => {
             setPostFlushBonus(null);
-          }, 8000);
+          }, 7000);
         }
       }
     }
@@ -492,13 +492,15 @@ export const CrazyGamesDesktop: React.FC<CrazyGamesDesktopProps> = ({
               </span>
             </button>
 
-            {/* Rewarded Ad Boost: Liquid Nitrogen Dump */}
-            <button
-              onClick={() => onTriggerRewardedAd('cryo_dump', 'LIQUID NITROGEN DUMP', 'Instant Sub-Zero reset to 25.0°C')}
-              className="w-full mt-2 py-2 bg-cyan-950/40 hover:bg-cyan-900/60 border border-cyan-400/50 text-cyan-200 text-xs font-black rounded-xl flex items-center justify-center gap-1.5 transition-all active:scale-95 shadow-md"
-            >
-              <span>❄️ AD BOOST: FREE NITROGEN DUMP (25°C)</span>
-            </button>
+            {/* Rewarded Ad Boost: Liquid Nitrogen Dump (Appears only when heat exceeds 55°C) */}
+            {state.heat >= 55 && (
+              <button
+                onClick={() => onTriggerRewardedAd('cryo_dump', 'LIQUID NITROGEN DUMP', 'Instant Sub-Zero reset to 25.0°C')}
+                className="w-full mt-2 py-2 bg-cyan-950/40 hover:bg-cyan-900/60 border border-cyan-400/50 text-cyan-200 text-xs font-black rounded-xl flex items-center justify-center gap-1.5 transition-all active:scale-95 shadow-md animate-fade-in"
+              >
+                <span>❄️ AD BOOST: FREE NITROGEN DUMP (25°C)</span>
+              </button>
+            )}
           </div>
         </div>
 

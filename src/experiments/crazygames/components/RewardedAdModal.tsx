@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { RewardedAdState } from '../types';
+import { audio } from '../../../audio/depthosAudio';
 
 interface RewardedAdModalProps {
   adState: RewardedAdState;
@@ -19,6 +20,9 @@ export const RewardedAdModal: React.FC<RewardedAdModalProps> = ({
   const hasTriggeredRef = useRef<boolean>(false);
 
   useEffect(() => {
+    // CrazyGames Policy: Mute game audio while ad is active
+    audio.setMuted(true);
+
     // Attempt real CrazyGames SDK v2 integration if available in window
     const win = window as unknown as {
       CrazyGames?: {
@@ -45,6 +49,7 @@ export const RewardedAdModal: React.FC<RewardedAdModalProps> = ({
             console.log('CrazyGames rewarded ad started');
           },
           adFinished: () => {
+            audio.setMuted(false);
             onReward();
             onClose();
           },
@@ -69,8 +74,12 @@ export const RewardedAdModal: React.FC<RewardedAdModalProps> = ({
       });
     }, 1000);
 
-    return () => clearInterval(timer);
-  }, [onReward, onClose]);
+    return () => {
+      clearInterval(timer);
+      // Restore audio on modal dismissal
+      audio.setMuted(false);
+    };
+  }, [onClose, onReward]);
 
   const handleClaimReward = () => {
     onReward();
