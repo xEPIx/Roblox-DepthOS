@@ -1,9 +1,8 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { RewardedAdState } from '../types';
-import { audio } from '../../../audio/depthosAudio';
-import { ensureCrazyGamesSdkReady, isCrazyGamesAdAvailable } from '../crazyGamesSdk';
+import { AdAttemptController, AdStatus, REQUEST_TIMEOUT_MS } from '../adAttemptController';
 
-export const REQUEST_TIMEOUT_MS = 8000;
+export { REQUEST_TIMEOUT_MS };
 
 interface RewardedAdModalProps {
   adState: RewardedAdState;
@@ -11,9 +10,8 @@ interface RewardedAdModalProps {
   onClose: () => void;
   onPlaybackStateChange?: (isPlaying: boolean) => void;
   onAttemptActiveChange?: (isActive: boolean) => void;
+  onConfirmedPlayback?: (attemptId: string) => void;
 }
-
-type AdStatus = 'idle' | 'requesting' | 'playing' | 'completed' | 'error' | 'unavailable';
 
 export const RewardedAdModal: React.FC<RewardedAdModalProps> = ({
   adState,
@@ -21,21 +19,13 @@ export const RewardedAdModal: React.FC<RewardedAdModalProps> = ({
   onClose,
   onPlaybackStateChange,
   onAttemptActiveChange,
+  onConfirmedPlayback,
 }) => {
   // 1. Hooks called unconditionally at top of component (Rule of Hooks)
   const [adStatus, setAdStatus] = useState<AdStatus>('idle');
   const [errorMessage, setErrorMessage] = useState<string>('');
 
-  // Audio preservation ref
-  const prevMutedRef = useRef<boolean>(false);
-  // Track active attempt session ID; callbacks from stale or cancelled attempts are discarded
-  const activeAttemptIdRef = useRef<string | null>(null);
-  // Guarantee each attemptId is granted at most once
-  const grantedAttemptIdsRef = useRef<Set<string>>(new Set());
-  // Request watchdog timer ref (ensures requests that never start playback fail safely)
-  const requestWatchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // Keep latest callbacks in refs to prevent unnecessary effect re-executions
+  // Keep latest callbacks in refs to avoid recreating controller
   const onRewardRef = useRef(onReward);
   onRewardRef.current = onReward;
   const onCloseRef = useRef(onClose);
@@ -44,215 +34,66 @@ export const RewardedAdModal: React.FC<RewardedAdModalProps> = ({
   onPlaybackStateChangeRef.current = onPlaybackStateChange;
   const onAttemptActiveChangeRef = useRef(onAttemptActiveChange);
   onAttemptActiveChangeRef.current = onAttemptActiveChange;
+  const onConfirmedPlaybackRef = useRef(onConfirmedPlayback);
+  onConfirmedPlaybackRef.current = onConfirmedPlayback;
 
-  const clearRequestWatchdog = useCallback(() => {
-    if (requestWatchdogRef.current) {
-      clearTimeout(requestWatchdogRef.current);
-      requestWatchdogRef.current = null;
-    }
-  }, []);
+  // Single persistent AdAttemptController instance across renders
+  const controllerRef = useRef<AdAttemptController | null>(null);
+  if (!controllerRef.current) {
+    controllerRef.current = new AdAttemptController({
+      onStatusChange: (status, msg) => {
+        setAdStatus(status);
+        setErrorMessage(msg);
+      },
+      onPlaybackStateChange: (isPlaying) => {
+        onPlaybackStateChangeRef.current?.(isPlaying);
+      },
+      onAttemptActiveChange: (isActive) => {
+        onAttemptActiveChangeRef.current?.(isActive);
+      },
+      onConfirmedPlayback: (attemptId) => {
+        onConfirmedPlaybackRef.current?.(attemptId);
+      },
+      onReward: (attemptId) => {
+        onRewardRef.current(attemptId);
+      },
+      onClose: () => {
+        onCloseRef.current();
+      },
+    });
+  }
 
-  // Single-grant reward executor with attempt token verification
-  const grantRewardOnce = useCallback((attemptId: string) => {
-    if (!attemptId) return;
-    // Stale or cancelled attempt check
-    if (activeAttemptIdRef.current !== attemptId) {
-      console.warn('[AdModal] Reward rejected: attempt token is no longer active or was superseded:', attemptId);
-      return;
-    }
-    // Duplicate grant guard
-    if (grantedAttemptIdsRef.current.has(attemptId)) {
-      console.warn('[AdModal] Reward rejected: attempt token already granted:', attemptId);
-      return;
-    }
-    grantedAttemptIdsRef.current.add(attemptId);
-    activeAttemptIdRef.current = null; // Mark resolved
-    onRewardRef.current(attemptId);
-  }, []);
-
-  // Safe dismiss with audio restoration, watchdog clearing, and state cleanup
+  // Safe dismiss callback for UI buttons
   const handleDismiss = useCallback(() => {
-    clearRequestWatchdog();
-    // Invalidate active attempt immediately so any delayed SDK callbacks are dropped
-    activeAttemptIdRef.current = null;
-    if (onPlaybackStateChangeRef.current) {
-      onPlaybackStateChangeRef.current(false);
-    }
-    if (onAttemptActiveChangeRef.current) {
-      onAttemptActiveChangeRef.current(false);
-    }
-    audio.setMuted(prevMutedRef.current);
+    controllerRef.current?.dismiss();
     onCloseRef.current();
-  }, [clearRequestWatchdog]);
+  }, []);
 
-  // Ad Lifecycle Effect
+  // Ad Lifecycle Effect: triggers startAttempt when open with attemptId
   useEffect(() => {
-    clearRequestWatchdog();
+    const controller = controllerRef.current;
+    if (!controller) return;
 
     if (!adState.isOpen || !adState.attemptId) {
-      // Modal closed: invalidate attempt, signal stopped playback and inactive attempt
-      activeAttemptIdRef.current = null;
-      if (onPlaybackStateChangeRef.current) {
-        onPlaybackStateChangeRef.current(false);
-      }
-      if (onAttemptActiveChangeRef.current) {
-        onAttemptActiveChangeRef.current(false);
-      }
+      controller.dismiss();
       setAdStatus('idle');
       setErrorMessage('');
       return;
     }
 
-    const currentAttemptId = adState.attemptId;
-    activeAttemptIdRef.current = currentAttemptId;
-
-    // Signal that a rewarded ad attempt is actively underway
-    if (onAttemptActiveChangeRef.current) {
-      onAttemptActiveChangeRef.current(true);
-    }
-
-    // Snapshot player's exact mute state before ad muting
-    const wasMuted = audio.getMuted();
-    prevMutedRef.current = wasMuted;
-    if (!wasMuted) {
-      audio.setMuted(true);
-    }
-
-    let isSubscribed = true;
-
-    // Execute official CrazyGames HTML5 SDK v2 flow
-    (async () => {
-      // Ensure SDK is ready and ad provider is verified before requesting
-      const isReady = await ensureCrazyGamesSdkReady();
-      if (!isSubscribed || activeAttemptIdRef.current !== currentAttemptId) {
-        return;
-      }
-
-      if (!isReady || !isCrazyGamesAdAvailable()) {
-        // SDK not available in environment (local preview or non-CrazyGames wrapper)
-        // Strict compliance: show clear unavailable state, never simulate or auto-grant
-        activeAttemptIdRef.current = null;
-        setAdStatus('unavailable');
-        if (onPlaybackStateChangeRef.current) {
-          onPlaybackStateChangeRef.current(false);
-        }
-        if (onAttemptActiveChangeRef.current) {
-          onAttemptActiveChangeRef.current(false);
-        }
-        audio.setMuted(prevMutedRef.current);
-        return;
-      }
-
-      setAdStatus('requesting');
-
-      // Start bounded watchdog timer: if SDK never calls adStarted, adFinished, or adError,
-      // fail safely without blocking the user or granting rewards.
-      requestWatchdogRef.current = setTimeout(() => {
-        if (!isSubscribed || activeAttemptIdRef.current !== currentAttemptId) {
-          return;
-        }
-        console.warn('[AdModal] Ad request timed out before playback started.');
-        // Invalidate attempt immediately
-        activeAttemptIdRef.current = null;
-        if (onPlaybackStateChangeRef.current) {
-          onPlaybackStateChangeRef.current(false);
-        }
-        if (onAttemptActiveChangeRef.current) {
-          onAttemptActiveChangeRef.current(false);
-        }
-        setAdStatus('error');
-        audio.setMuted(prevMutedRef.current);
-        setErrorMessage('Ad request timed out before playback started. Please check connection and try again.');
-      }, REQUEST_TIMEOUT_MS);
-
-      try {
-        window.CrazyGames!.SDK!.ad!.requestAd('rewarded', {
-          adStarted: () => {
-            // Once playback begins, clear request watchdog. Long-running ads play to completion.
-            clearRequestWatchdog();
-            if (!isSubscribed || activeAttemptIdRef.current !== currentAttemptId) {
-              return;
-            }
-            setAdStatus('playing');
-            if (onPlaybackStateChangeRef.current) {
-              onPlaybackStateChangeRef.current(true);
-            }
-          },
-          adFinished: () => {
-            clearRequestWatchdog();
-            // ONLY adFinished on active attempt grants the reward
-            if (!isSubscribed || activeAttemptIdRef.current !== currentAttemptId) {
-              return;
-            }
-            if (onPlaybackStateChangeRef.current) {
-              onPlaybackStateChangeRef.current(false);
-            }
-            if (onAttemptActiveChangeRef.current) {
-              onAttemptActiveChangeRef.current(false);
-            }
-            setAdStatus('completed');
-            audio.setMuted(prevMutedRef.current);
-            grantRewardOnce(currentAttemptId);
-            onCloseRef.current();
-          },
-          adError: (err) => {
-            clearRequestWatchdog();
-            // NEVER grant reward on error or dismissal. Immediately settle attempt token.
-            if (!isSubscribed || activeAttemptIdRef.current !== currentAttemptId) {
-              return;
-            }
-            activeAttemptIdRef.current = null;
-            if (onPlaybackStateChangeRef.current) {
-              onPlaybackStateChangeRef.current(false);
-            }
-            if (onAttemptActiveChangeRef.current) {
-              onAttemptActiveChangeRef.current(false);
-            }
-            setAdStatus('error');
-            audio.setMuted(prevMutedRef.current);
-            const errStr =
-              typeof err === 'string'
-                ? err
-                : err && typeof err === 'object' && 'message' in err
-                ? String((err as { message: unknown }).message)
-                : 'No rewarded ad available or ad was cancelled.';
-            setErrorMessage(errStr);
-          },
-        });
-      } catch (err) {
-        clearRequestWatchdog();
-        if (isSubscribed && activeAttemptIdRef.current === currentAttemptId) {
-          activeAttemptIdRef.current = null;
-          if (onPlaybackStateChangeRef.current) {
-            onPlaybackStateChangeRef.current(false);
-          }
-          if (onAttemptActiveChangeRef.current) {
-            onAttemptActiveChangeRef.current(false);
-          }
-          setAdStatus('error');
-          audio.setMuted(prevMutedRef.current);
-          setErrorMessage('Failed to communicate with CrazyGames SDK.');
-        }
-      }
-    })();
+    controller.startAttempt(adState.attemptId);
 
     return () => {
-      isSubscribed = false;
-      clearRequestWatchdog();
-      // Invalidate attempt on unmount/cleanup
-      if (activeAttemptIdRef.current === currentAttemptId) {
-        activeAttemptIdRef.current = null;
-      }
-      if (onPlaybackStateChangeRef.current) {
-        onPlaybackStateChangeRef.current(false);
-      }
-      if (onAttemptActiveChangeRef.current) {
-        onAttemptActiveChangeRef.current(false);
-      }
-      // Always restore player's prior audio mute preference on unmount/cleanup
-      audio.setMuted(prevMutedRef.current);
+      controller.dismiss();
     };
-  }, [adState.isOpen, adState.attemptId, grantRewardOnce, clearRequestWatchdog]);
+  }, [adState.isOpen, adState.attemptId]);
+
+  // Clean up on component unmount
+  useEffect(() => {
+    return () => {
+      controllerRef.current?.dispose();
+    };
+  }, []);
 
   // 2. Return early strictly AFTER all hooks are called
   if (!adState.isOpen) return null;

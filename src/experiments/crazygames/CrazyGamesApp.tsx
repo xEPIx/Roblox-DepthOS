@@ -49,6 +49,13 @@ export function CrazyGamesApp() {
   const handlePlaybackStateChange = useCallback((isPlaying: boolean) => {
     setIsAdPlaying(isPlaying);
     isAdPlayingRef.current = isPlaying;
+    if (isPlaying) {
+      // Cooldown fairness: apply cooldown only when playback actually starts
+      const currentType = adModalStateRef.current.type;
+      if (currentType) {
+        setAdCooldowns((prev) => setAdCooldownExpiry(currentType, prev));
+      }
+    }
   }, []);
 
   // Tracks whether a BSOD revive ad attempt is actively underway
@@ -292,14 +299,20 @@ export function CrazyGamesApp() {
     bonus?: number,
     onSuccess?: () => void
   ) => {
+    // Overlapping attempt guard: reject repeated clicks while an ad modal is already open
+    if (adModalStateRef.current.isOpen) {
+      console.warn('[AdSafety] Blocked duplicate/overlapping ad trigger while modal is open.');
+      return;
+    }
+
     // Cooldown pacing guard
     if (isAdOnCooldown(type, adCooldownsRef.current)) {
       console.warn('[AdPacing] Ad offer is currently on cooldown:', type);
       return;
     }
 
-    // Enforce cooldown timestamp
-    setAdCooldowns((prev) => setAdCooldownExpiry(type, prev));
+    // Fair cooldown policy: Cooldown is NOT applied upon opening the modal.
+    // It is recorded only when ad playback starts or when the reward is claimed.
 
     const attemptId = `cg_ad_${Date.now()}_${nextAttemptIndexRef.current++}_${Math.random().toString(36).slice(2, 8)}`;
     setAdModalState({
@@ -335,6 +348,7 @@ export function CrazyGamesApp() {
       return;
     }
     grantedAttemptsRef.current.add(attemptId);
+    setAdCooldowns((prev) => setAdCooldownExpiry(currentAd.type, prev));
 
     audio.ensureContext();
     audio.playUpgradeSound();

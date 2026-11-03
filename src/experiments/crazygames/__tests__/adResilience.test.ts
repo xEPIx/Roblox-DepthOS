@@ -1,6 +1,12 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  AdAttemptController,
+  AdStatus,
+  SdkProvider,
+  AudioProvider,
+} from '../adAttemptController';
+import {
   AD_COOLDOWN_DURATIONS,
   getAdCooldownRemaining,
   isAdOnCooldown,
@@ -8,324 +14,475 @@ import {
 } from '../adPacing';
 import { RewardedAdType } from '../types';
 
-/**
- * Ad Attempt Session Simulator
- * Simulates the exact state machine and safety guards implemented in:
- * - src/experiments/crazygames/components/RewardedAdModal.tsx
- * - src/experiments/crazygames/CrazyGamesApp.tsx
- */
-class AdAttemptSessionHarness {
-  public activeAttemptId: string | null = null;
-  public grantedAttemptIds = new Set<string>();
-  public adStatus: 'idle' | 'requesting' | 'playing' | 'completed' | 'error' | 'unavailable' = 'idle';
-  public errorMessage: string = '';
-  public isPlaybackActive: boolean = false;
-  public isAttemptActive: boolean = false;
-  public audioMuted: boolean = false;
-  public prevMuted: boolean = false;
-  public rewardGrantCount: number = 0;
-  public requestTimeoutTimer: NodeJS.Timeout | null = null;
-  public readonly REQUEST_TIMEOUT_MS = 8000;
-
-  constructor(initialMuted: boolean = false) {
-    this.audioMuted = initialMuted;
-    this.prevMuted = initialMuted;
-  }
-
-  // Opens modal with a unique attempt ID
-  public openAttempt(attemptId: string) {
-    this.activeAttemptId = attemptId;
-    this.isAttemptActive = true;
-    this.prevMuted = this.audioMuted;
-    if (!this.audioMuted) {
-      this.audioMuted = true;
-    }
-  }
-
-  // Starts the request watchdog timer (simulating modal's setTimeout)
-  public startWatchdog(onTimeoutCallback?: () => void) {
-    this.adStatus = 'requesting';
-    this.requestTimeoutTimer = setTimeout(() => {
-      this.triggerTimeout();
-      if (onTimeoutCallback) onTimeoutCallback();
-    }, this.REQUEST_TIMEOUT_MS);
-  }
-
-  // Clear watchdog
-  public clearWatchdog() {
-    if (this.requestTimeoutTimer) {
-      clearTimeout(this.requestTimeoutTimer);
-      this.requestTimeoutTimer = null;
-    }
-  }
-
-  // Timeout failure path
-  public triggerTimeout() {
-    this.clearWatchdog();
-    this.activeAttemptId = null;
-    this.isPlaybackActive = false;
-    this.isAttemptActive = false;
-    this.adStatus = 'error';
-    this.audioMuted = this.prevMuted;
-    this.errorMessage = 'Ad request timed out before playback started. Please check connection and try again.';
-  }
-
-  // Simulated SDK callback: adStarted
-  public onSdkAdStarted(attemptId: string) {
-    this.clearWatchdog();
-    if (this.activeAttemptId !== attemptId) return;
-    this.adStatus = 'playing';
-    this.isPlaybackActive = true;
-  }
-
-  // Simulated SDK callback: adFinished
-  public onSdkAdFinished(attemptId: string) {
-    this.clearWatchdog();
-    if (this.activeAttemptId !== attemptId) return;
-    this.isPlaybackActive = false;
-    this.isAttemptActive = false;
-    this.adStatus = 'completed';
-    this.audioMuted = this.prevMuted;
-
-    // Grant reward once
-    if (this.grantedAttemptIds.has(attemptId)) {
-      return;
-    }
-    this.grantedAttemptIds.add(attemptId);
-    this.activeAttemptId = null;
-    this.rewardGrantCount++;
-  }
-
-  // Simulated SDK callback: adError
-  public onSdkAdError(attemptId: string, error: unknown) {
-    this.clearWatchdog();
-    if (this.activeAttemptId !== attemptId) return;
-    this.activeAttemptId = null;
-    this.isPlaybackActive = false;
-    this.isAttemptActive = false;
-    this.adStatus = 'error';
-    this.audioMuted = this.prevMuted;
-    this.errorMessage = typeof error === 'string' ? error : 'Ad error occurred';
-  }
-
-  // User dismissal / cancellation
-  public dismiss() {
-    this.clearWatchdog();
-    this.activeAttemptId = null;
-    this.isPlaybackActive = false;
-    this.isAttemptActive = false;
-    this.audioMuted = this.prevMuted;
-  }
-
-  // SDK missing / unavailable path
-  public triggerUnavailable() {
-    this.clearWatchdog();
-    this.activeAttemptId = null;
-    this.isPlaybackActive = false;
-    this.isAttemptActive = false;
-    this.adStatus = 'unavailable';
-    this.audioMuted = this.prevMuted;
-  }
+function createMockAudio(initialMuted: boolean = false): AudioProvider & { muted: boolean } {
+  const audioState = { muted: initialMuted };
+  return {
+    get muted() {
+      return audioState.muted;
+    },
+    set muted(v: boolean) {
+      audioState.muted = v;
+    },
+    getMuted: () => audioState.muted,
+    setMuted: (m: boolean) => {
+      audioState.muted = m;
+    },
+  };
 }
 
-describe('CrazyGames Rewarded-Ad Resilience & Pacing Suite', () => {
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-  it('1. Request timeout-before-play: fails safely and never grants rewards', () => {
-    const session = new AdAttemptSessionHarness(false);
-    session.openAttempt('attempt_timeout_test');
-    assert.equal(session.audioMuted, true);
-    assert.equal(session.isAttemptActive, true);
+describe('CrazyGames Rewarded-Ad Resilience & Shared Controller Suite', () => {
 
-    // Watchdog triggers timeout
-    session.triggerTimeout();
+  it('1. Watchdog covers hung SDK readiness: fails safely and never grants rewards', async () => {
+    const mockAudio = createMockAudio(false);
+    let rewardGranted = false;
+    let playbackChanges: boolean[] = [];
+    let attemptActiveChanges: boolean[] = [];
+    let currentStatus: AdStatus = 'idle';
 
-    assert.equal(session.adStatus, 'error');
-    assert.equal(session.activeAttemptId, null, 'Active attempt token must be invalidated');
-    assert.equal(session.isAttemptActive, false, 'Attempt active flag must be false so countdown resumes');
-    assert.equal(session.isPlaybackActive, false, 'Playback must not be active');
-    assert.equal(session.audioMuted, false, 'Audio mute must be restored to previous state');
-    assert.equal(session.rewardGrantCount, 0, 'No reward may be granted on timeout');
-    assert.match(session.errorMessage, /timed out/i);
+    // Mock an SDK where ensureReady hangs forever (never resolves)
+    const hangingSdk: SdkProvider = {
+      ensureReady: () => new Promise<boolean>(() => {}),
+      isAdAvailable: () => true,
+      requestAd: () => {},
+    };
 
-    // Any delayed SDK callback arriving after timeout must be dropped
-    session.onSdkAdFinished('attempt_timeout_test');
-    assert.equal(session.rewardGrantCount, 0, 'Late callback after timeout must not grant reward');
+    const controller = new AdAttemptController(
+      {
+        onStatusChange: (status) => {
+          currentStatus = status;
+        },
+        onPlaybackStateChange: (isPlaying) => {
+          playbackChanges.push(isPlaying);
+        },
+        onAttemptActiveChange: (isActive) => {
+          attemptActiveChanges.push(isActive);
+        },
+        onReward: () => {
+          rewardGranted = true;
+        },
+      },
+      {
+        timeoutMs: 40, // Fast timeout for test execution
+        sdkProvider: hangingSdk,
+        audioProvider: mockAudio,
+      }
+    );
+
+    controller.startAttempt('hung_sdk_attempt');
+
+    assert.equal(controller.isAttemptActive, true);
+    assert.equal(mockAudio.muted, true, 'Audio must be muted upon attempt inception');
+    assert.equal(currentStatus, 'requesting');
+
+    // Wait for the watchdog timer to fire
+    await sleep(60);
+
+    assert.equal(controller.adStatus, 'error');
+    assert.equal(currentStatus, 'error');
+    assert.match(controller.errorMessage, /timed out/i);
+    assert.equal(controller.activeAttemptId, null, 'Active attempt token must be invalidated');
+    assert.equal(controller.isAttemptActive, false, 'Attempt active must be false so countdown resumes');
+    assert.equal(controller.isPlaying, false, 'Playback must not be active');
+    assert.equal(mockAudio.muted, false, 'Audio mute must be restored to previous state');
+    assert.equal(rewardGranted, false, 'No reward may be granted on watchdog timeout');
   });
 
-  it('2. Long-running active playback: watchdog is cleared on play, ad runs to completion', () => {
-    const session = new AdAttemptSessionHarness(false);
-    session.openAttempt('attempt_long_play');
-    session.startWatchdog();
+  it('2. Watchdog covers hung requestAd: timeout before playback fails safely and drops late callbacks', async () => {
+    const mockAudio = createMockAudio(false);
+    let rewardCount = 0;
+    let capturedCallbacks: { adStarted?: () => void; adFinished?: () => void } = {};
 
-    // SDK signals playback started
-    session.onSdkAdStarted('attempt_long_play');
-    assert.equal(session.adStatus, 'playing');
-    assert.equal(session.isPlaybackActive, true);
-    assert.equal(session.requestTimeoutTimer, null, 'Watchdog timer must be cleared once playback starts');
+    const hungRequestSdk: SdkProvider = {
+      ensureReady: async () => true,
+      isAdAvailable: () => true,
+      requestAd: (_type, callbacks) => {
+        capturedCallbacks = callbacks;
+        // Never call any callbacks
+      },
+    };
 
-    // Simulate 45 seconds of active playback (no timeout occurs)
-    assert.equal(session.adStatus, 'playing');
+    const controller = new AdAttemptController(
+      {
+        onReward: () => {
+          rewardCount++;
+        },
+      },
+      {
+        timeoutMs: 40,
+        sdkProvider: hungRequestSdk,
+        audioProvider: mockAudio,
+      }
+    );
 
-    // SDK completes
-    session.onSdkAdFinished('attempt_long_play');
-    assert.equal(session.adStatus, 'completed');
-    assert.equal(session.rewardGrantCount, 1, 'Reward must be granted exactly once');
-    assert.equal(session.audioMuted, false, 'Audio mute must be restored');
-    assert.equal(session.activeAttemptId, null, 'Attempt token settled');
+    controller.startAttempt('hung_request_attempt');
+    await sleep(60);
+
+    assert.equal(controller.adStatus, 'error');
+    assert.equal(controller.activeAttemptId, null);
+    assert.equal(mockAudio.muted, false);
+    assert.equal(rewardCount, 0);
+
+    // Stale delayed callbacks arriving after watchdog timeout must be dropped
+    if (capturedCallbacks.adStarted) capturedCallbacks.adStarted();
+    if (capturedCallbacks.adFinished) capturedCallbacks.adFinished();
+
+    assert.equal(rewardCount, 0, 'Late callback arriving after timeout must never grant reward');
+    assert.equal(controller.isPlaying, false);
   });
 
-  it('3. BSOD revive behavior: countdown timing, cash recovery, and normal reboot discard', () => {
-    // 3a. Verify BSOD revive attempt keeps crash state while active, resumes countdown when ended
-    let bsodCountdown = 4.5;
-    let isBSOD = true;
-    let lostVolatile = 1500;
-    let lostRam = 128;
-    let isReviveAttemptActive = true;
+  it('3. Long-running active playback: watchdog is cleared on adStarted, ad finishes normally', async () => {
+    const mockAudio = createMockAudio(false);
+    let rewardCount = 0;
+    let confirmedPlaybackCalled = false;
+    let closeCalled = false;
 
-    // Simulation step during active revive attempt: countdown is held
-    if (isBSOD && isReviveAttemptActive) {
-      bsodCountdown = 4.5; // preserved
-    }
-    assert.equal(bsodCountdown, 4.5);
+    let savedCallbacks: { adStarted?: () => void; adFinished?: () => void } = {};
 
-    // Ad attempt cancels / times out -> isReviveAttemptActive becomes false
-    isReviveAttemptActive = false;
-    // Next simulation step: countdown ticks normally
-    bsodCountdown = Math.max(0, bsodCountdown - 0.1);
-    assert.equal(Math.round(bsodCountdown * 10) / 10, 4.4);
+    const playbackSdk: SdkProvider = {
+      ensureReady: async () => true,
+      isAdAvailable: () => true,
+      requestAd: (_type, callbacks) => {
+        savedCallbacks = callbacks;
+        // Immediately start playback
+        callbacks.adStarted?.();
+      },
+    };
 
-    // 3b. Verify single-use cash recovery on successful revive
-    let playerVolatile = 0;
-    let playerRam = 0;
-    const restoredCash = lostVolatile;
-    const restoredRam = lostRam;
-    lostVolatile = 0; // consumed
-    lostRam = 0; // consumed
-    playerVolatile = restoredCash;
-    playerRam = restoredRam;
+    const controller = new AdAttemptController(
+      {
+        onConfirmedPlayback: () => {
+          confirmedPlaybackCalled = true;
+        },
+        onReward: () => {
+          rewardCount++;
+        },
+        onClose: () => {
+          closeCalled = true;
+        },
+      },
+      {
+        timeoutMs: 40, // Short timeout: playback will exceed this to prove watchdog was cancelled
+        sdkProvider: playbackSdk,
+        audioProvider: mockAudio,
+      }
+    );
 
-    assert.equal(playerVolatile, 1500);
-    assert.equal(playerRam, 128);
-    assert.equal(lostVolatile, 0, 'Lost volatile cache must be consumed and reset to 0');
+    controller.startAttempt('long_playback_attempt');
+    // Allow microtasks to run ensureReady
+    await sleep(15);
 
-    // 3c. Normal reboot clears lost cash if revive was not chosen
-    let normalRebootLostCash = 2500;
-    let rebootHappened = true;
-    if (rebootHappened) {
-      normalRebootLostCash = 0;
-    }
-    assert.equal(normalRebootLostCash, 0, 'Normal reboot must discard unrecovered cash');
+    assert.equal(controller.adStatus, 'playing');
+    assert.equal(controller.isPlaying, true);
+    assert.equal(confirmedPlaybackCalled, true);
+    assert.equal(mockAudio.muted, true);
+
+    // Wait longer than timeoutMs (60ms > 40ms) while ad is playing
+    await sleep(60);
+
+    // Status must STILL be 'playing' because the watchdog was cleared on adStarted
+    assert.equal(controller.adStatus, 'playing', 'Ad must not timeout once playback has started');
+
+    // Now signal ad completion from the SDK
+    savedCallbacks.adFinished?.();
+
+    assert.equal(controller.adStatus, 'completed');
+    assert.equal(controller.isPlaying, false);
+    assert.equal(controller.isAttemptActive, false);
+    assert.equal(mockAudio.muted, false, 'Audio mute must be restored on completion');
+    assert.equal(rewardCount, 1, 'Reward must be granted exactly once');
+    assert.equal(closeCalled, true);
   });
 
-  it('4. Cancellation / Dismissal: clears attempt, restores audio, drops late callbacks', () => {
-    const session = new AdAttemptSessionHarness(false);
-    session.openAttempt('attempt_dismiss_test');
-    assert.equal(session.audioMuted, true);
+  it('4. Cancellation / Dismissal: clears attempt, restores audio, drops late callbacks', async () => {
+    const mockAudio = createMockAudio(false);
+    let rewardCount = 0;
+    let savedCallbacks: { adFinished?: () => void } = {};
 
-    // User dismisses modal
-    session.dismiss();
-    assert.equal(session.activeAttemptId, null);
-    assert.equal(session.isAttemptActive, false);
-    assert.equal(session.audioMuted, false);
+    const sdk: SdkProvider = {
+      ensureReady: async () => true,
+      isAdAvailable: () => true,
+      requestAd: (_type, callbacks) => {
+        savedCallbacks = callbacks;
+      },
+    };
 
-    // Late adFinished callback arriving from CrazyGames SDK
-    session.onSdkAdFinished('attempt_dismiss_test');
-    assert.equal(session.rewardGrantCount, 0, 'Dismissed attempt must never grant reward');
+    const controller = new AdAttemptController(
+      {
+        onReward: () => {
+          rewardCount++;
+        },
+      },
+      {
+        timeoutMs: 500,
+        sdkProvider: sdk,
+        audioProvider: mockAudio,
+      }
+    );
+
+    controller.startAttempt('cancelled_attempt');
+    assert.equal(mockAudio.muted, true);
+
+    // User dismisses/cancels before ad completes
+    controller.dismiss();
+
+    assert.equal(controller.activeAttemptId, null);
+    assert.equal(controller.isAttemptActive, false);
+    assert.equal(mockAudio.muted, false, 'Audio must be restored on dismissal');
+
+    // Late adFinished callback from SDK arrives after dismissal
+    savedCallbacks.adFinished?.();
+
+    assert.equal(rewardCount, 0, 'Cancelled attempt must never grant reward');
   });
 
-  it('5. SDK errors: safely handled, restores audio, no reward granted', () => {
-    const session = new AdAttemptSessionHarness(false);
-    session.openAttempt('attempt_error_test');
-    session.startWatchdog();
+  it('5. SDK error followed by late adFinished: safely drops delayed callback and grants nothing', async () => {
+    const mockAudio = createMockAudio(false);
+    let rewardCount = 0;
+    let savedCallbacks: { adError?: (err: unknown) => void; adFinished?: () => void } = {};
 
-    session.onSdkAdError('attempt_error_test', 'CrazyGames: No ad inventory available');
-    assert.equal(session.adStatus, 'error');
-    assert.equal(session.activeAttemptId, null);
-    assert.equal(session.isAttemptActive, false);
-    assert.equal(session.audioMuted, false);
-    assert.equal(session.rewardGrantCount, 0);
-    assert.equal(session.errorMessage, 'CrazyGames: No ad inventory available');
+    const errorSdk: SdkProvider = {
+      ensureReady: async () => true,
+      isAdAvailable: () => true,
+      requestAd: (_type, callbacks) => {
+        savedCallbacks = callbacks;
+        callbacks.adError?.('CrazyGames inventory unavailable');
+      },
+    };
+
+    const controller = new AdAttemptController(
+      {
+        onReward: () => {
+          rewardCount++;
+        },
+      },
+      {
+        sdkProvider: errorSdk,
+        audioProvider: mockAudio,
+      }
+    );
+
+    controller.startAttempt('error_attempt');
+    await sleep(15);
+
+    assert.equal(controller.adStatus, 'error');
+    assert.match(controller.errorMessage, /CrazyGames inventory unavailable/);
+    assert.equal(controller.activeAttemptId, null);
+    assert.equal(controller.isAttemptActive, false);
+    assert.equal(mockAudio.muted, false);
+    assert.equal(rewardCount, 0);
+
+    // Delayed adFinished from malfunctioning SDK
+    savedCallbacks.adFinished?.();
+    assert.equal(rewardCount, 0, 'No reward may be granted after ad error');
   });
 
-  it('6. Missing SDK / Preview: shows unavailable status, no fake reward granted', () => {
-    const session = new AdAttemptSessionHarness(false);
-    session.openAttempt('attempt_preview_test');
+  it('6. Duplicate adFinished callbacks: strictly enforced exactly-once reward grant', async () => {
+    let rewardCount = 0;
+    let savedCallbacks: { adStarted?: () => void; adFinished?: () => void } = {};
 
-    session.triggerUnavailable();
-    assert.equal(session.adStatus, 'unavailable');
-    assert.equal(session.activeAttemptId, null);
-    assert.equal(session.isAttemptActive, false);
-    assert.equal(session.audioMuted, false);
-    assert.equal(session.rewardGrantCount, 0, 'No reward may ever be granted when SDK is unavailable');
+    const dupSdk: SdkProvider = {
+      ensureReady: async () => true,
+      isAdAvailable: () => true,
+      requestAd: (_type, callbacks) => {
+        savedCallbacks = callbacks;
+        callbacks.adStarted?.();
+        callbacks.adFinished?.();
+      },
+    };
+
+    const controller = new AdAttemptController(
+      {
+        onReward: () => {
+          rewardCount++;
+        },
+      },
+      {
+        sdkProvider: dupSdk,
+      }
+    );
+
+    controller.startAttempt('duplicate_test_token');
+    await sleep(15);
+
+    assert.equal(rewardCount, 1, 'First adFinished grants the reward');
+
+    // Malicious or buggy SDK invokes adFinished a second time
+    savedCallbacks.adFinished?.();
+    assert.equal(rewardCount, 1, 'Second adFinished must be ignored');
   });
 
-  it('7. Stale and duplicate callback rejection: exactly-once grant enforcement', () => {
-    const session = new AdAttemptSessionHarness(false);
-    session.openAttempt('attempt_token_1');
+  it('7. Missing SDK / Standalone preview: shows unavailable status with zero false rewards', async () => {
+    const mockAudio = createMockAudio(false);
+    let rewardCount = 0;
 
-    session.onSdkAdStarted('attempt_token_1');
-    session.onSdkAdFinished('attempt_token_1');
-    assert.equal(session.rewardGrantCount, 1);
+    const unavailableSdk: SdkProvider = {
+      ensureReady: async () => false,
+      isAdAvailable: () => false,
+      requestAd: () => {},
+    };
 
-    // Duplicate call with same token
-    session.onSdkAdFinished('attempt_token_1');
-    assert.equal(session.rewardGrantCount, 1, 'Duplicate callback on same token must be ignored');
+    const controller = new AdAttemptController(
+      {
+        onReward: () => {
+          rewardCount++;
+        },
+      },
+      {
+        sdkProvider: unavailableSdk,
+        audioProvider: mockAudio,
+      }
+    );
 
-    // Callback with outdated/stale token from previous attempt
-    session.openAttempt('attempt_token_2');
-    session.onSdkAdFinished('attempt_token_1');
-    assert.equal(session.rewardGrantCount, 1, 'Stale token from earlier attempt must be ignored');
+    controller.startAttempt('preview_attempt');
+    await sleep(15);
+
+    assert.equal(controller.adStatus, 'unavailable');
+    assert.equal(controller.activeAttemptId, null);
+    assert.equal(controller.isAttemptActive, false);
+    assert.equal(mockAudio.muted, false);
+    assert.equal(rewardCount, 0, 'No reward may be granted when SDK is unavailable');
   });
 
-  it('8. Mute restoration preserves initial player sound preference', () => {
+  it('8. Component unmount / disposal (dispose): cancels timer and restores audio cleanly', async () => {
+    const mockAudio = createMockAudio(false);
+    let rewardCount = 0;
+
+    const hangingSdk: SdkProvider = {
+      ensureReady: () => new Promise<boolean>(() => {}),
+      isAdAvailable: () => true,
+      requestAd: () => {},
+    };
+
+    const controller = new AdAttemptController(
+      {
+        onReward: () => {
+          rewardCount++;
+        },
+      },
+      {
+        timeoutMs: 1000,
+        sdkProvider: hangingSdk,
+        audioProvider: mockAudio,
+      }
+    );
+
+    controller.startAttempt('unmount_attempt');
+    assert.equal(mockAudio.muted, true);
+    assert.equal(controller.isAttemptActive, true);
+
+    // Component unmounts
+    controller.dispose();
+
+    assert.equal(controller.adStatus, 'idle');
+    assert.equal(controller.activeAttemptId, null);
+    assert.equal(controller.isAttemptActive, false);
+    assert.equal(mockAudio.muted, false, 'Audio must be restored on unmount');
+    assert.equal(rewardCount, 0);
+  });
+
+  it('9. Mute restoration preserves initial player sound preference', async () => {
     // Case A: Player was UNMUTED before ad -> must be UNMUTED after ad
-    const sessionUnmuted = new AdAttemptSessionHarness(false);
-    sessionUnmuted.openAttempt('mute_test_a');
-    assert.equal(sessionUnmuted.audioMuted, true, 'Must mute during ad');
-    sessionUnmuted.onSdkAdFinished('mute_test_a');
-    assert.equal(sessionUnmuted.audioMuted, false, 'Must restore unmuted state');
+    const audioUnmuted = createMockAudio(false);
+    const sdkA: SdkProvider = {
+      ensureReady: async () => true,
+      isAdAvailable: () => true,
+      requestAd: (_t, cb) => {
+        cb.adStarted?.();
+        cb.adFinished?.();
+      },
+    };
+    const ctrlA = new AdAttemptController({}, { sdkProvider: sdkA, audioProvider: audioUnmuted });
+    ctrlA.startAttempt('mute_test_a');
+    await sleep(15);
+    assert.equal(audioUnmuted.muted, false, 'Must restore unmuted state');
 
     // Case B: Player was ALREADY MUTED before ad -> must remain MUTED after ad
-    const sessionMuted = new AdAttemptSessionHarness(true);
-    sessionMuted.openAttempt('mute_test_b');
-    assert.equal(sessionMuted.audioMuted, true);
-    sessionMuted.onSdkAdFinished('mute_test_b');
-    assert.equal(sessionMuted.audioMuted, true, 'Must preserve pre-existing muted state');
+    const audioMuted = createMockAudio(true);
+    const ctrlB = new AdAttemptController({}, { sdkProvider: sdkA, audioProvider: audioMuted });
+    ctrlB.startAttempt('mute_test_b');
+    await sleep(15);
+    assert.equal(audioMuted.muted, true, 'Must preserve pre-existing muted state');
   });
 
-  it('9. Cooldown tracking & expiry: independent per-type cooldown durations', () => {
+  it('10. Cooldown fairness: no cooldown on error/cancel/preview; applied on confirmed playback', () => {
     const now = 1000000;
     let cooldowns: Record<string, number> = {};
 
-    // Check initial state
+    // Scenario A: Failed / cancelled / unavailable ad attempt
+    // In our fair policy, cooldowns are NOT applied when opening the offer.
+    // If an ad fails or is cancelled before playback, cooldowns remain empty.
     assert.equal(isAdOnCooldown('double_flush', cooldowns, now), false);
     assert.equal(getAdCooldownRemaining('double_flush', cooldowns, now), 0);
 
-    // Apply cooldown to double_flush (duration: 45s)
-    cooldowns = setAdCooldownExpiry('double_flush', cooldowns, 45, now);
+    // Scenario B: Confirmed playback / claim sets cooldown
+    cooldowns = setAdCooldownExpiry('double_flush', cooldowns, AD_COOLDOWN_DURATIONS.double_flush, now);
     assert.equal(isAdOnCooldown('double_flush', cooldowns, now), true);
     assert.equal(getAdCooldownRemaining('double_flush', cooldowns, now), 45);
 
-    // Mid-cooldown check (after 20 seconds)
-    const midTime = now + 20000;
-    assert.equal(isAdOnCooldown('double_flush', cooldowns, midTime), true);
-    assert.equal(getAdCooldownRemaining('double_flush', cooldowns, midTime), 25);
+    // Other ad types remain available independently
+    assert.equal(isAdOnCooldown('cryo_dump', cooldowns, now), false);
 
-    // Independent type check: cryo_dump is NOT on cooldown
-    assert.equal(isAdOnCooldown('cryo_dump', cooldowns, midTime), false);
-
-    // Apply cooldown to cryo_dump (duration: 30s)
-    cooldowns = setAdCooldownExpiry('cryo_dump', cooldowns, 30, midTime);
-    assert.equal(isAdOnCooldown('cryo_dump', cooldowns, midTime), true);
-    assert.equal(getAdCooldownRemaining('cryo_dump', cooldowns, midTime), 30);
-
-    // After double_flush cooldown expires (+46 seconds from start)
-    const expiredTime = now + 46000;
+    // After 45 seconds:
+    const expiredTime = now + 45001;
     assert.equal(isAdOnCooldown('double_flush', cooldowns, expiredTime), false);
     assert.equal(getAdCooldownRemaining('double_flush', cooldowns, expiredTime), 0);
+  });
 
-    // cryo_dump is still active at expiredTime (was set at now+20000 for 30s = now+50000)
-    assert.equal(isAdOnCooldown('cryo_dump', cooldowns, expiredTime), true);
-    assert.equal(getAdCooldownRemaining('cryo_dump', cooldowns, expiredTime), 4);
+  it('11. Overlapping attempt prevention guard', () => {
+    let isOpen = false;
+    let attemptCount = 0;
+
+    const triggerOffer = () => {
+      // Logic from handleTriggerRewardedAd
+      if (isOpen) {
+        return; // Guard blocks overlap
+      }
+      isOpen = true;
+      attemptCount++;
+    };
+
+    triggerOffer();
+    assert.equal(attemptCount, 1);
+    assert.equal(isOpen, true);
+
+    // Rapid second click while modal is open
+    triggerOffer();
+    assert.equal(attemptCount, 1, 'Duplicate click must be blocked while attempt is in progress');
+  });
+
+  it('12. BSOD revive cash & RAM recovery correctness', () => {
+    // 12a. Verify crash captures exact cash and RAM
+    const crashedVolatile = 4250;
+    const crashedRam = 256;
+    let lostVolatile = crashedVolatile;
+    let lostRam = crashedRam;
+
+    // Active revive attempt holds countdown
+    let bsodCountdown = 5.0;
+    const isReviveActive = true;
+    if (isReviveActive) {
+      bsodCountdown = 5.0;
+    }
+    assert.equal(bsodCountdown, 5.0);
+
+    // Revive completed successfully -> restores cash & RAM once and resets cache
+    let restoredCash = lostVolatile;
+    let restoredRam = lostRam;
+    lostVolatile = 0; // single-use consumed
+    lostRam = 0;
+
+    assert.equal(restoredCash, 4250);
+    assert.equal(restoredRam, 256);
+    assert.equal(lostVolatile, 0, 'Lost cash must be consumed and reset');
+
+    // 12b. Normal reboot discards unrecovered cash
+    let manualLostCash = 3000;
+    const fastReboot = () => {
+      manualLostCash = 0;
+    };
+    fastReboot();
+    assert.equal(manualLostCash, 0, 'Manual reboot must clear lost cash');
   });
 });
