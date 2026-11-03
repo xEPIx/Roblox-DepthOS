@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { RewardedAdState } from '../types';
 import { audio } from '../../../audio/depthosAudio';
+import { ensureCrazyGamesSdkReady, isCrazyGamesAdAvailable } from '../crazyGamesSdk';
 
 interface RewardedAdModalProps {
   adState: RewardedAdState;
@@ -105,42 +106,33 @@ export const RewardedAdModal: React.FC<RewardedAdModalProps> = ({
 
     let isSubscribed = true;
 
-    // Check for official CrazyGames SDK v2
-    const win = window as unknown as {
-      CrazyGames?: {
-        SDK?: {
-          init?: () => Promise<void> | void;
-          ad?: {
-            requestAd: (
-              type: string,
-              callbacks: {
-                adStarted?: () => void;
-                adFinished?: () => void;
-                adError?: (error: unknown) => void;
-              }
-            ) => void;
-          };
-        };
-      };
-    };
-
-    if (typeof win.CrazyGames?.SDK?.ad?.requestAd === 'function') {
-      setAdStatus('requesting');
-
-      // Initialize CrazyGames SDK defensively if init exists and hasn't completed
-      try {
-        if (typeof win.CrazyGames?.SDK?.init === 'function') {
-          const initRes = win.CrazyGames.SDK.init();
-          if (initRes && typeof (initRes as Promise<unknown>).catch === 'function') {
-            (initRes as Promise<unknown>).catch(() => {});
-          }
-        }
-      } catch {
-        // Safe fallback if init already ran or throws non-fatal notice
+    // Execute official CrazyGames HTML5 SDK v2 flow
+    (async () => {
+      // Ensure SDK is ready and ad provider is verified before requesting
+      const isReady = await ensureCrazyGamesSdkReady();
+      if (!isSubscribed || activeAttemptIdRef.current !== currentAttemptId) {
+        return;
       }
 
+      if (!isReady || !isCrazyGamesAdAvailable()) {
+        // SDK not available in environment (local preview or non-CrazyGames wrapper)
+        // Strict compliance: show clear unavailable state, never simulate or auto-grant
+        activeAttemptIdRef.current = null;
+        setAdStatus('unavailable');
+        if (onPlaybackStateChangeRef.current) {
+          onPlaybackStateChangeRef.current(false);
+        }
+        if (onAttemptActiveChangeRef.current) {
+          onAttemptActiveChangeRef.current(false);
+        }
+        audio.setMuted(prevMutedRef.current);
+        return;
+      }
+
+      setAdStatus('requesting');
+
       try {
-        win.CrazyGames.SDK.ad.requestAd('rewarded', {
+        window.CrazyGames!.SDK!.ad!.requestAd('rewarded', {
           adStarted: () => {
             if (!isSubscribed || activeAttemptIdRef.current !== currentAttemptId) {
               return;
@@ -167,10 +159,11 @@ export const RewardedAdModal: React.FC<RewardedAdModalProps> = ({
             onCloseRef.current();
           },
           adError: (err) => {
-            // NEVER grant reward on error or dismissal
+            // NEVER grant reward on error or dismissal. Immediately settle attempt token.
             if (!isSubscribed || activeAttemptIdRef.current !== currentAttemptId) {
               return;
             }
+            activeAttemptIdRef.current = null;
             if (onPlaybackStateChangeRef.current) {
               onPlaybackStateChangeRef.current(false);
             }
@@ -190,6 +183,7 @@ export const RewardedAdModal: React.FC<RewardedAdModalProps> = ({
         });
       } catch (err) {
         if (isSubscribed && activeAttemptIdRef.current === currentAttemptId) {
+          activeAttemptIdRef.current = null;
           if (onPlaybackStateChangeRef.current) {
             onPlaybackStateChangeRef.current(false);
           }
@@ -201,18 +195,7 @@ export const RewardedAdModal: React.FC<RewardedAdModalProps> = ({
           setErrorMessage('Failed to communicate with CrazyGames SDK.');
         }
       }
-    } else {
-      // SDK not detected in environment (local preview or standalone iframe)
-      // Strict rule: Show ads unavailable state and grant nothing
-      setAdStatus('unavailable');
-      if (onPlaybackStateChangeRef.current) {
-        onPlaybackStateChangeRef.current(false);
-      }
-      if (onAttemptActiveChangeRef.current) {
-        onAttemptActiveChangeRef.current(false);
-      }
-      audio.setMuted(prevMutedRef.current);
-    }
+    })();
 
     return () => {
       isSubscribed = false;
