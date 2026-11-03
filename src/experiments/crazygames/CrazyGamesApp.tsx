@@ -19,6 +19,7 @@ import { createDepthOSThreeScene, SceneController } from '../../game/threeScene'
 import { CrazyGamesDesktop } from './components/CrazyGamesDesktop';
 import { RewardedAdModal } from './components/RewardedAdModal';
 import { RewardedAdState, RewardedAdType, FlushEvent } from './types';
+import { initCrazyGamesSdk } from './crazyGamesSdk';
 import { BSODOverlay } from '../../components/BSODOverlay';
 import { ThermalGrainOverlay } from '../../components/ThermalGrainOverlay';
 import { ThermalWarningOverlay } from '../../components/ThermalWarningOverlay';
@@ -34,18 +35,42 @@ export function CrazyGamesApp() {
     type: 'double_flush',
     title: '',
     rewardLabel: '',
+    attemptId: '',
   });
   const adModalStateRef = useRef<RewardedAdState>(adModalState);
   adModalStateRef.current = adModalState;
+
+  // Active playback state: pauses simulation and turbo countdown strictly during video playback
+  const [isAdPlaying, setIsAdPlaying] = useState<boolean>(false);
+  const isAdPlayingRef = useRef<boolean>(false);
+  isAdPlayingRef.current = isAdPlaying;
+
+  const handlePlaybackStateChange = useCallback((isPlaying: boolean) => {
+    setIsAdPlaying(isPlaying);
+    isAdPlayingRef.current = isPlaying;
+  }, []);
+
+  // Tracks whether a BSOD revive ad attempt is actively underway
+  const [isReviveAttemptActive, setIsReviveAttemptActive] = useState<boolean>(false);
+  const isReviveAttemptActiveRef = useRef<boolean>(false);
+  isReviveAttemptActiveRef.current = isReviveAttemptActive;
+
+  const handleAttemptActiveChange = useCallback((isActive: boolean) => {
+    setIsReviveAttemptActive(isActive);
+    isReviveAttemptActiveRef.current = isActive;
+  }, []);
 
   const [isDoubleFlushActive, setIsDoubleFlushActive] = useState<boolean>(false);
   const [isTurboActive, setIsTurboActive] = useState<boolean>(false);
   const [turboTimeRemaining, setTurboTimeRemaining] = useState<number>(0);
 
-  // Payout lineage & BSOD crash cash recovery refs
+  // Payout lineage & BSOD crash cash and RAM recovery refs
   const [lastFlushEvent, setLastFlushEvent] = useState<FlushEvent | null>(null);
   const nextFlushEventIdRef = useRef<number>(1);
+  const nextAttemptIndexRef = useRef<number>(1);
+  const grantedAttemptsRef = useRef<Set<string>>(new Set());
   const lostVolatileOnCrashRef = useRef<number>(0);
+  const lostRamOnCrashRef = useRef<number>(0);
 
   const stateRef = useRef<DepthOSState>(depthState);
   stateRef.current = depthState;
@@ -56,10 +81,16 @@ export function CrazyGamesApp() {
   const threeMountRef = useRef<HTMLDivElement | null>(null);
   const sceneCtrlRef = useRef<SceneController | null>(null);
 
-  // 1-second countdown timer for active Turbo Overclock boost
+  // Initialize CrazyGames SDK defensively on mount
+  useEffect(() => {
+    initCrazyGamesSdk();
+  }, []);
+
+  // 1-second countdown timer for active Turbo Overclock boost (paused during video ad playback)
   useEffect(() => {
     if (!isTurboActive) return;
     const t = setInterval(() => {
+      if (isAdPlayingRef.current) return;
       setTurboTimeRemaining((prev) => {
         if (prev <= 1) {
           setIsTurboActive(false);
@@ -102,26 +133,38 @@ export function CrazyGamesApp() {
   // 10Hz Simulation Engine Loop
   useEffect(() => {
     const interval = setInterval(() => {
+      // Pause entire simulation engine while a rewarded video ad is actively playing
+      // Prevents heat dissipation, RAM mutations, volatile changes, or crashes while video is shown
+      if (isAdPlayingRef.current) {
+        return;
+      }
+
       const prev = stateRef.current;
-      const isReviveAdOpen = adModalStateRef.current.isOpen && adModalStateRef.current.type === 'bsod_revive';
+      const isReviveActive =
+        adModalStateRef.current.isOpen &&
+        adModalStateRef.current.type === 'bsod_revive' &&
+        isReviveAttemptActiveRef.current;
 
       const next = stepSimulation(prev, 0.1);
 
-      // 1. Crash detection: accurately capture unbanked volatile bytes lost at meltdown
+      // 1. Crash detection: accurately capture unbanked volatile bytes and exact RAM used at meltdown
       if (!prev.isBSOD && next.isBSOD) {
         audio.playBSODCrash();
         lostVolatileOnCrashRef.current = prev.volatileBytes;
+        lostRamOnCrashRef.current = prev.ramUsedMB;
       }
 
-      // 2. Prevent BSOD auto-reboot countdown from expiring while revive ad attempt is open
-      if (prev.isBSOD && isReviveAdOpen) {
+      // 2. Prevent BSOD auto-reboot countdown from expiring while revive ad attempt is actively underway
+      // Resumes promptly if ad fails, errors, is unavailable, or is cancelled
+      if (prev.isBSOD && isReviveActive) {
         next.isBSOD = true;
         next.bsodCountdown = prev.bsodCountdown;
       }
 
-      // 3. Clear unrecovered lost cash on normal reboot
+      // 3. Clear unrecovered lost cash and RAM on normal reboot
       if (prev.isBSOD && !next.isBSOD) {
         lostVolatileOnCrashRef.current = 0;
+        lostRamOnCrashRef.current = 0;
       }
 
       // 4. Real Simulation Flush Completion: Explicit Payout Lineage
@@ -231,7 +274,7 @@ export function CrazyGamesApp() {
     setGameState('playing');
   };
 
-  // Rewarded Ad Trigger Handler
+  // Rewarded Ad Trigger Handler - Issues a unique attempt token per ad request
   const handleTriggerRewardedAd = useCallback((
     type: RewardedAdType,
     title: string,
@@ -239,6 +282,7 @@ export function CrazyGamesApp() {
     bonus?: number,
     onSuccess?: () => void
   ) => {
+    const attemptId = `cg_ad_${Date.now()}_${nextAttemptIndexRef.current++}_${Math.random().toString(36).slice(2, 8)}`;
     setAdModalState({
       isOpen: true,
       type,
@@ -246,12 +290,33 @@ export function CrazyGamesApp() {
       rewardLabel,
       payoutBonus: bonus,
       onSuccess,
+      attemptId,
     });
   }, []);
 
   // Rewarded Ad Claim Handler - Guaranteed single-grant execution upon real ad completion
-  const handleClaimAdReward = useCallback(() => {
+  const handleClaimAdReward = useCallback((attemptId: string) => {
     const currentAd = adModalStateRef.current;
+
+    // Safety guard 1: Modal must be open
+    if (!currentAd.isOpen) {
+      console.warn('[AdSafety] Attempted claim on closed modal for attempt:', attemptId);
+      return;
+    }
+
+    // Safety guard 2: Attempt token must match currently active ad attempt
+    if (!attemptId || attemptId !== currentAd.attemptId) {
+      console.warn('[AdSafety] Attempt token mismatch/superseded:', attemptId, 'expected:', currentAd.attemptId);
+      return;
+    }
+
+    // Safety guard 3: Exactly-once grant guard across session
+    if (grantedAttemptsRef.current.has(attemptId)) {
+      console.warn('[AdSafety] Duplicate reward claim prevented for attempt:', attemptId);
+      return;
+    }
+    grantedAttemptsRef.current.add(attemptId);
+
     audio.ensureContext();
     audio.playUpgradeSound();
 
@@ -267,16 +332,18 @@ export function CrazyGamesApp() {
       setIsTurboActive(true);
       setTurboTimeRemaining(30);
     } else if (currentAd.type === 'bsod_revive') {
-      const restored = lostVolatileOnCrashRef.current;
+      const restoredCash = lostVolatileOnCrashRef.current;
+      const restoredRam = lostRamOnCrashRef.current;
       lostVolatileOnCrashRef.current = 0; // single-use consumed
+      lostRamOnCrashRef.current = 0;
       setDepthState((prev) => ({
         ...prev,
         isBSOD: false,
         heat: 35.0,
         bsodCountdown: 0,
-        isBufferStalled: false,
-        volatileBytes: restored,
-        ramUsedMB: Math.min(prev.ramMaxMB, calculateRamCost(restored)),
+        isBufferStalled: restoredRam >= prev.ramMaxMB,
+        volatileBytes: restoredCash,
+        ramUsedMB: Math.min(prev.ramMaxMB, restoredRam),
       }));
     } else if (currentAd.type === 'milestone_double') {
       const bonus = (currentAd.payoutBonus || 50) * 2;
@@ -302,6 +369,10 @@ export function CrazyGamesApp() {
   }, []);
 
   const handleCloseAdModal = useCallback(() => {
+    setIsAdPlaying(false);
+    isAdPlayingRef.current = false;
+    setIsReviveAttemptActive(false);
+    isReviveAttemptActiveRef.current = false;
     setAdModalState((prev) => ({ ...prev, isOpen: false }));
   }, []);
 
@@ -316,7 +387,8 @@ export function CrazyGamesApp() {
 
   // Fast reboot from 100°C Meltdown
   const handleFastReboot = () => {
-    lostVolatileOnCrashRef.current = 0; // Discard unrecovered cash on manual reboot
+    lostVolatileOnCrashRef.current = 0; // Discard unrecovered cash and RAM on manual reboot
+    lostRamOnCrashRef.current = 0;
     audio.ensureContext();
     audio.playUpgradeSound();
     setDepthState((prev) => ({
@@ -462,6 +534,8 @@ export function CrazyGamesApp() {
         adState={adModalState}
         onReward={handleClaimAdReward}
         onClose={handleCloseAdModal}
+        onPlaybackStateChange={handlePlaybackStateChange}
+        onAttemptActiveChange={handleAttemptActiveChange}
       />
 
       {/* High-Impact Arcade Title Screen or Active Arcade Desktop */}
@@ -551,8 +625,8 @@ export function CrazyGamesApp() {
                 const lost = lostVolatileOnCrashRef.current;
                 const rewardDesc =
                   lost > 0
-                    ? `Revive with +$${lost.toLocaleString()} unbanked cash restored & 35.0°C cool core`
-                    : 'Instant Reboot with 35.0°C Sub-Zero core';
+                    ? `Revive with +$${lost.toLocaleString()} unbanked cash restored, buffer recovered & 35.0°C cool core`
+                    : 'Instant Reboot with 35.0°C Sub-Zero cool core';
                 handleTriggerRewardedAd(
                   'bsod_revive',
                   'EMERGENCY RECOVERY PROTOCOL',

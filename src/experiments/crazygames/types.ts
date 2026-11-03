@@ -46,6 +46,7 @@ export interface RewardedAdState {
   rewardLabel: string;
   payoutBonus?: number;
   onSuccess?: () => void;
+  attemptId?: string;
 }
 
 export interface FlushEvent {

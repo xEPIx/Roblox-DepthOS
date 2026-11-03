@@ -4,8 +4,10 @@ import { audio } from '../../../audio/depthosAudio';
 
 interface RewardedAdModalProps {
   adState: RewardedAdState;
-  onReward: () => void;
+  onReward: (attemptId: string) => void;
   onClose: () => void;
+  onPlaybackStateChange?: (isPlaying: boolean) => void;
+  onAttemptActiveChange?: (isActive: boolean) => void;
 }
 
 type AdStatus = 'idle' | 'requesting' | 'playing' | 'completed' | 'error' | 'unavailable';
@@ -14,6 +16,8 @@ export const RewardedAdModal: React.FC<RewardedAdModalProps> = ({
   adState,
   onReward,
   onClose,
+  onPlaybackStateChange,
+  onAttemptActiveChange,
 }) => {
   // 1. Hooks called unconditionally at top of component (Rule of Hooks)
   const [adStatus, setAdStatus] = useState<AdStatus>('idle');
@@ -21,45 +25,76 @@ export const RewardedAdModal: React.FC<RewardedAdModalProps> = ({
 
   // Audio preservation ref
   const prevMutedRef = useRef<boolean>(false);
-  // Guarantee reward is only granted once per session
-  const rewardGrantedRef = useRef<boolean>(false);
-  // Prevent duplicate ad requests across parent re-renders
-  const hasRequestedRef = useRef<boolean>(false);
+  // Track active attempt session ID; callbacks from stale or cancelled attempts are discarded
+  const activeAttemptIdRef = useRef<string | null>(null);
+  // Guarantee each attemptId is granted at most once
+  const grantedAttemptIdsRef = useRef<Set<string>>(new Set());
 
   // Keep latest callbacks in refs to prevent unnecessary effect re-executions
   const onRewardRef = useRef(onReward);
   onRewardRef.current = onReward;
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
+  const onPlaybackStateChangeRef = useRef(onPlaybackStateChange);
+  onPlaybackStateChangeRef.current = onPlaybackStateChange;
+  const onAttemptActiveChangeRef = useRef(onAttemptActiveChange);
+  onAttemptActiveChangeRef.current = onAttemptActiveChange;
 
-  // Single-grant reward executor
-  const grantRewardOnce = useCallback(() => {
-    if (rewardGrantedRef.current) return;
-    rewardGrantedRef.current = true;
-    onRewardRef.current();
+  // Single-grant reward executor with attempt token verification
+  const grantRewardOnce = useCallback((attemptId: string) => {
+    if (!attemptId) return;
+    // Stale or cancelled attempt check
+    if (activeAttemptIdRef.current !== attemptId) {
+      console.warn('[AdModal] Reward rejected: attempt token is no longer active or was superseded:', attemptId);
+      return;
+    }
+    // Duplicate grant guard
+    if (grantedAttemptIdsRef.current.has(attemptId)) {
+      console.warn('[AdModal] Reward rejected: attempt token already granted:', attemptId);
+      return;
+    }
+    grantedAttemptIdsRef.current.add(attemptId);
+    activeAttemptIdRef.current = null; // Mark resolved
+    onRewardRef.current(attemptId);
   }, []);
 
-  // Safe dismiss with audio restoration
+  // Safe dismiss with audio restoration and state cleanup
   const handleDismiss = useCallback(() => {
+    // Invalidate active attempt immediately so any delayed SDK callbacks are dropped
+    activeAttemptIdRef.current = null;
+    if (onPlaybackStateChangeRef.current) {
+      onPlaybackStateChangeRef.current(false);
+    }
+    if (onAttemptActiveChangeRef.current) {
+      onAttemptActiveChangeRef.current(false);
+    }
     audio.setMuted(prevMutedRef.current);
     onCloseRef.current();
   }, []);
 
   // Ad Lifecycle Effect
   useEffect(() => {
-    if (!adState.isOpen) {
-      // Reset state when modal closes
-      hasRequestedRef.current = false;
-      rewardGrantedRef.current = false;
+    if (!adState.isOpen || !adState.attemptId) {
+      // Modal closed: invalidate attempt, signal stopped playback and inactive attempt
+      activeAttemptIdRef.current = null;
+      if (onPlaybackStateChangeRef.current) {
+        onPlaybackStateChangeRef.current(false);
+      }
+      if (onAttemptActiveChangeRef.current) {
+        onAttemptActiveChangeRef.current(false);
+      }
       setAdStatus('idle');
       setErrorMessage('');
       return;
     }
 
-    // Only request once per modal open
-    if (hasRequestedRef.current) return;
-    hasRequestedRef.current = true;
-    rewardGrantedRef.current = false;
+    const currentAttemptId = adState.attemptId;
+    activeAttemptIdRef.current = currentAttemptId;
+
+    // Signal that a rewarded ad attempt is actively underway
+    if (onAttemptActiveChangeRef.current) {
+      onAttemptActiveChangeRef.current(true);
+    }
 
     // Snapshot player's exact mute state before ad muting
     const wasMuted = audio.getMuted();
@@ -68,10 +103,13 @@ export const RewardedAdModal: React.FC<RewardedAdModalProps> = ({
       audio.setMuted(true);
     }
 
-    // Check for real CrazyGames SDK v2
+    let isSubscribed = true;
+
+    // Check for official CrazyGames SDK v2
     const win = window as unknown as {
       CrazyGames?: {
         SDK?: {
+          init?: () => Promise<void> | void;
           ad?: {
             requestAd: (
               type: string,
@@ -88,20 +126,57 @@ export const RewardedAdModal: React.FC<RewardedAdModalProps> = ({
 
     if (typeof win.CrazyGames?.SDK?.ad?.requestAd === 'function') {
       setAdStatus('requesting');
+
+      // Initialize CrazyGames SDK defensively if init exists and hasn't completed
+      try {
+        if (typeof win.CrazyGames?.SDK?.init === 'function') {
+          const initRes = win.CrazyGames.SDK.init();
+          if (initRes && typeof (initRes as Promise<unknown>).catch === 'function') {
+            (initRes as Promise<unknown>).catch(() => {});
+          }
+        }
+      } catch {
+        // Safe fallback if init already ran or throws non-fatal notice
+      }
+
       try {
         win.CrazyGames.SDK.ad.requestAd('rewarded', {
           adStarted: () => {
+            if (!isSubscribed || activeAttemptIdRef.current !== currentAttemptId) {
+              return;
+            }
             setAdStatus('playing');
+            if (onPlaybackStateChangeRef.current) {
+              onPlaybackStateChangeRef.current(true);
+            }
           },
           adFinished: () => {
-            // ONLY adFinished grants the reward
+            // ONLY adFinished on active attempt grants the reward
+            if (!isSubscribed || activeAttemptIdRef.current !== currentAttemptId) {
+              return;
+            }
+            if (onPlaybackStateChangeRef.current) {
+              onPlaybackStateChangeRef.current(false);
+            }
+            if (onAttemptActiveChangeRef.current) {
+              onAttemptActiveChangeRef.current(false);
+            }
             setAdStatus('completed');
             audio.setMuted(prevMutedRef.current);
-            grantRewardOnce();
+            grantRewardOnce(currentAttemptId);
             onCloseRef.current();
           },
           adError: (err) => {
             // NEVER grant reward on error or dismissal
+            if (!isSubscribed || activeAttemptIdRef.current !== currentAttemptId) {
+              return;
+            }
+            if (onPlaybackStateChangeRef.current) {
+              onPlaybackStateChangeRef.current(false);
+            }
+            if (onAttemptActiveChangeRef.current) {
+              onAttemptActiveChangeRef.current(false);
+            }
             setAdStatus('error');
             audio.setMuted(prevMutedRef.current);
             const errStr =
@@ -114,31 +189,47 @@ export const RewardedAdModal: React.FC<RewardedAdModalProps> = ({
           },
         });
       } catch (err) {
-        setAdStatus('error');
-        audio.setMuted(prevMutedRef.current);
-        setErrorMessage('Failed to communicate with CrazyGames SDK.');
+        if (isSubscribed && activeAttemptIdRef.current === currentAttemptId) {
+          if (onPlaybackStateChangeRef.current) {
+            onPlaybackStateChangeRef.current(false);
+          }
+          if (onAttemptActiveChangeRef.current) {
+            onAttemptActiveChangeRef.current(false);
+          }
+          setAdStatus('error');
+          audio.setMuted(prevMutedRef.current);
+          setErrorMessage('Failed to communicate with CrazyGames SDK.');
+        }
       }
     } else {
-      // SDK not detected in environment (local preview or external iframe)
-      // Per specification: Do NOT simulate a completed ad or grant the reward
+      // SDK not detected in environment (local preview or standalone iframe)
+      // Strict rule: Show ads unavailable state and grant nothing
       setAdStatus('unavailable');
+      if (onPlaybackStateChangeRef.current) {
+        onPlaybackStateChangeRef.current(false);
+      }
+      if (onAttemptActiveChangeRef.current) {
+        onAttemptActiveChangeRef.current(false);
+      }
       audio.setMuted(prevMutedRef.current);
     }
 
     return () => {
+      isSubscribed = false;
+      // Invalidate attempt on unmount/cleanup
+      if (activeAttemptIdRef.current === currentAttemptId) {
+        activeAttemptIdRef.current = null;
+      }
+      if (onPlaybackStateChangeRef.current) {
+        onPlaybackStateChangeRef.current(false);
+      }
+      if (onAttemptActiveChangeRef.current) {
+        onAttemptActiveChangeRef.current(false);
+      }
       // Always restore player's prior audio mute preference on unmount/cleanup
       audio.setMuted(prevMutedRef.current);
     };
-  }, [adState.isOpen, grantRewardOnce]);
-
-  // Explicit dev-only mock handler (strictly compiled out in production)
-  const handleDevMockComplete = () => {
-    if (!import.meta.env.DEV) return;
-    setAdStatus('completed');
-    audio.setMuted(prevMutedRef.current);
-    grantRewardOnce();
-    onCloseRef.current();
-  };
+  }, [adState.isOpen, adState.attemptId, grantRewardOnce]);
 
   // 2. Return early strictly AFTER all hooks are called
   if (!adState.isOpen) return null;
@@ -179,29 +270,14 @@ export const RewardedAdModal: React.FC<RewardedAdModalProps> = ({
               <span>⚠️ ADS UNAVAILABLE IN PREVIEW</span>
             </div>
             <p className="text-xs text-gray-300 leading-relaxed mb-3">
-              The CrazyGames SDK is not detected in this standalone preview environment. Rewarded video ads only serve inside the live CrazyGames player container.
+              The CrazyGames SDK rewarded ad provider is not available in this standalone preview environment. Rewarded video ads only serve inside the live CrazyGames player container.
             </p>
             <div className="p-2.5 bg-cyan-950/40 border border-cyan-800/60 rounded-lg text-[11px] text-cyan-200">
               <strong>Reward Target:</strong> {adState.title} ({adState.rewardLabel})
             </div>
             <p className="text-[11px] text-gray-400 mt-2 italic">
-              Production compliance rule: No automatic reward is granted when the SDK is absent.
+              Production compliance rule: Rewards are strictly granted upon verified SDK ad completion. No automatic rewards or simulated completions are granted.
             </p>
-
-            {/* Development-Only Testing Control (Hardcoded to DEV mode only) */}
-            {import.meta.env.DEV && (
-              <div className="mt-4 pt-3 border-t border-gray-800">
-                <button
-                  onClick={handleDevMockComplete}
-                  className="w-full py-2.5 bg-yellow-500/20 hover:bg-yellow-500/30 border border-yellow-500 text-yellow-300 text-xs font-black rounded-xl uppercase tracking-wider transition-colors"
-                >
-                  🧪 [DEV ONLY] SIMULATE SDK AD FINISH
-                </button>
-                <div className="text-[10px] text-gray-500 text-center mt-1">
-                  (Omitted automatically in production build)
-                </div>
-              </div>
-            )}
           </div>
         ) : adStatus === 'error' ? (
           <div className="my-6 p-5 bg-red-950/40 rounded-2xl border border-red-500/50 text-left">
