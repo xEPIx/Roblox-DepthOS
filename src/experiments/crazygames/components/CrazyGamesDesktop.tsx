@@ -16,7 +16,7 @@ import {
   getSurgeThreshold,
   CRITICAL_TEMP,
 } from '../../../game/simulation';
-import { FloatingRewardItem, ArcadeObjective, OnboardingStage, RewardedAdType } from '../types';
+import { FloatingRewardItem, ArcadeObjective, OnboardingStage, RewardedAdType, FlushEvent } from '../types';
 import { FloatingNumberFx } from './FloatingNumberFx';
 import { FirstMinuteObjectiveBar } from './FirstMinuteObjectiveBar';
 import { CrazyGamesOnboardingOverlay } from './CrazyGamesOnboardingOverlay';
@@ -41,6 +41,7 @@ interface CrazyGamesDesktopProps {
   isTurboActive?: boolean;
   turboTimeRemaining?: number;
   isDoubleFlushActive?: boolean;
+  lastFlushEvent?: FlushEvent | null;
 }
 
 export const CrazyGamesDesktop: React.FC<CrazyGamesDesktopProps> = ({
@@ -57,6 +58,7 @@ export const CrazyGamesDesktop: React.FC<CrazyGamesDesktopProps> = ({
   isTurboActive = false,
   turboTimeRemaining = 0,
   isDoubleFlushActive = false,
+  lastFlushEvent = null,
 }) => {
   const [floatingItems, setFloatingItems] = useState<FloatingRewardItem[]>([]);
   const [isProcessActive, setIsProcessActive] = useState<boolean>(false);
@@ -108,42 +110,42 @@ export const CrazyGamesDesktop: React.FC<CrazyGamesDesktopProps> = ({
 
   const [currentObjIndex, setCurrentObjIndex] = useState<number>(0);
   const [postFlushBonus, setPostFlushBonus] = useState<{ amount: number; visible: boolean } | null>(null);
-  const prevBankedRef = useRef<number>(state.bankedBytes);
 
-  // Detect cash flush payout and trigger celebration popup + optional double prompt
+  // Listen strictly to real simulation flush events (Payout source tracking)
   useEffect(() => {
-    if (state.bankedBytes > prevBankedRef.current) {
-      const diff = state.bankedBytes - prevBankedRef.current;
-      // If it wasn't an objective claim (which handles its own popup)
-      if (diff > 0 && !state.isBSOD) {
-        const id = nextIdRef.current++;
-        setFloatingItems((prev) => [
-          ...prev.slice(-6),
-          {
-            id,
-            x: window.innerWidth / 2,
-            y: window.innerHeight / 2 - 30,
-            text: `💰 +$${diff.toLocaleString()} BANKED!`,
-            color: '#10b981',
-            scale: 1.4,
-            isSurge: true,
-          },
-        ]);
-        setTimeout(() => {
-          setFloatingItems((prev) => prev.filter((item) => item.id !== id));
-        }, 1100);
+    if (!lastFlushEvent) return;
 
-        // Offer non-intrusive 2x double for large windfall flushes (anti-spam pacing)
-        if (diff >= 80) {
-          setPostFlushBonus({ amount: diff, visible: true });
-          setTimeout(() => {
-            setPostFlushBonus(null);
-          }, 7000);
-        }
-      }
+    // Trigger celebration popup for the actual completed flush
+    const id = nextIdRef.current++;
+    setFloatingItems((prev) => [
+      ...prev.slice(-6),
+      {
+        id,
+        x: window.innerWidth / 2,
+        y: window.innerHeight / 2 - 30,
+        text: `💰 +$${lastFlushEvent.totalPayout.toLocaleString()} BANKED!`,
+        color: '#10b981',
+        scale: 1.4,
+        isSurge: true,
+      },
+    ]);
+    setTimeout(() => {
+      setFloatingItems((prev) => prev.filter((item) => item.id !== id));
+    }, 1100);
+
+    // Only offer post-flush double if:
+    // 1. The flush was NOT already doubled via a double-flush boost
+    // 2. The base payout meets the qualifying threshold (>= 80)
+    if (!lastFlushEvent.wasAlreadyDoubled && lastFlushEvent.basePayout >= 80) {
+      setPostFlushBonus({ amount: lastFlushEvent.basePayout, visible: true });
+      const timer = setTimeout(() => {
+        setPostFlushBonus(null);
+      }, 7000);
+      return () => clearTimeout(timer);
+    } else {
+      setPostFlushBonus(null);
     }
-    prevBankedRef.current = state.bankedBytes;
-  }, [state.bankedBytes, state.isBSOD]);
+  }, [lastFlushEvent]);
 
   // Guided Coachmarks (remembers completion)
   const [onboardingStage, setOnboardingStage] = useState<OnboardingStage>(() => {

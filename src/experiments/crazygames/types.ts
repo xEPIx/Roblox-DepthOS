@@ -47,3 +47,11 @@ export interface RewardedAdState {
   payoutBonus?: number;
   onSuccess?: () => void;
 }
+
+export interface FlushEvent {
+  id: number;
+  basePayout: number;
+  totalPayout: number;
+  wasAlreadyDoubled: boolean;
+  timestamp: number;
+}

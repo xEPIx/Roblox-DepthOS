@@ -18,7 +18,7 @@ import { audio } from '../../audio/depthosAudio';
 import { createDepthOSThreeScene, SceneController } from '../../game/threeScene';
 import { CrazyGamesDesktop } from './components/CrazyGamesDesktop';
 import { RewardedAdModal } from './components/RewardedAdModal';
-import { RewardedAdState, RewardedAdType } from './types';
+import { RewardedAdState, RewardedAdType, FlushEvent } from './types';
 import { BSODOverlay } from '../../components/BSODOverlay';
 import { ThermalGrainOverlay } from '../../components/ThermalGrainOverlay';
 import { ThermalWarningOverlay } from '../../components/ThermalWarningOverlay';
@@ -41,6 +41,11 @@ export function CrazyGamesApp() {
   const [isDoubleFlushActive, setIsDoubleFlushActive] = useState<boolean>(false);
   const [isTurboActive, setIsTurboActive] = useState<boolean>(false);
   const [turboTimeRemaining, setTurboTimeRemaining] = useState<number>(0);
+
+  // Payout lineage & BSOD crash cash recovery refs
+  const [lastFlushEvent, setLastFlushEvent] = useState<FlushEvent | null>(null);
+  const nextFlushEventIdRef = useRef<number>(1);
+  const lostVolatileOnCrashRef = useRef<number>(0);
 
   const stateRef = useRef<DepthOSState>(depthState);
   stateRef.current = depthState;
@@ -98,20 +103,50 @@ export function CrazyGamesApp() {
   useEffect(() => {
     const interval = setInterval(() => {
       const prev = stateRef.current;
+      const isReviveAdOpen = adModalStateRef.current.isOpen && adModalStateRef.current.type === 'bsod_revive';
+
       const next = stepSimulation(prev, 0.1);
 
+      // 1. Crash detection: accurately capture unbanked volatile bytes lost at meltdown
       if (!prev.isBSOD && next.isBSOD) {
         audio.playBSODCrash();
+        lostVolatileOnCrashRef.current = prev.volatileBytes;
       }
 
-      // Check if flush completed and apply Double Flush Rewarded Bonus if active
+      // 2. Prevent BSOD auto-reboot countdown from expiring while revive ad attempt is open
+      if (prev.isBSOD && isReviveAdOpen) {
+        next.isBSOD = true;
+        next.bsodCountdown = prev.bsodCountdown;
+      }
+
+      // 3. Clear unrecovered lost cash on normal reboot
+      if (prev.isBSOD && !next.isBSOD) {
+        lostVolatileOnCrashRef.current = 0;
+      }
+
+      // 4. Real Simulation Flush Completion: Explicit Payout Lineage
       if (prev.isFlushing && !next.isFlushing && next.bankedBytes > prev.bankedBytes) {
-        if (isDoubleFlushRef.current) {
-          const addedYield = next.bankedBytes - prev.bankedBytes;
-          next.bankedBytes += addedYield;
+        const basePayout = next.bankedBytes - prev.bankedBytes;
+        const wasDoubleActive = isDoubleFlushRef.current;
+
+        if (wasDoubleActive) {
+          next.bankedBytes += basePayout;
+          next.lifetimeBankedBytes += basePayout;
+          next.currentXP += basePayout;
           setIsDoubleFlushActive(false);
+          isDoubleFlushRef.current = false;
         }
+
         audio.playFlushChime();
+
+        // Emit explicit flush event
+        setLastFlushEvent({
+          id: nextFlushEventIdRef.current++,
+          basePayout,
+          totalPayout: wasDoubleActive ? basePayout * 2 : basePayout,
+          wasAlreadyDoubled: wasDoubleActive,
+          timestamp: Date.now(),
+        });
       }
 
       if (sceneCtrlRef.current) {
@@ -232,24 +267,32 @@ export function CrazyGamesApp() {
       setIsTurboActive(true);
       setTurboTimeRemaining(30);
     } else if (currentAd.type === 'bsod_revive') {
+      const restored = lostVolatileOnCrashRef.current;
+      lostVolatileOnCrashRef.current = 0; // single-use consumed
       setDepthState((prev) => ({
         ...prev,
         isBSOD: false,
         heat: 35.0,
         bsodCountdown: 0,
         isBufferStalled: false,
+        volatileBytes: restored,
+        ramUsedMB: Math.min(prev.ramMaxMB, calculateRamCost(restored)),
       }));
     } else if (currentAd.type === 'milestone_double') {
       const bonus = (currentAd.payoutBonus || 50) * 2;
       setDepthState((prev) => ({
         ...prev,
         bankedBytes: prev.bankedBytes + bonus,
+        lifetimeBankedBytes: prev.lifetimeBankedBytes + bonus,
+        currentXP: prev.currentXP + bonus,
       }));
     } else if (currentAd.type === 'post_flush_double') {
-      const bonus = currentAd.payoutBonus || 50;
+      const bonus = currentAd.payoutBonus || 0;
       setDepthState((prev) => ({
         ...prev,
         bankedBytes: prev.bankedBytes + bonus,
+        lifetimeBankedBytes: prev.lifetimeBankedBytes + bonus,
+        currentXP: prev.currentXP + bonus,
       }));
     }
 
@@ -266,11 +309,14 @@ export function CrazyGamesApp() {
     setDepthState((prev) => ({
       ...prev,
       bankedBytes: prev.bankedBytes + rewardBytes,
+      lifetimeBankedBytes: prev.lifetimeBankedBytes + rewardBytes,
+      currentXP: prev.currentXP + rewardBytes,
     }));
   }, []);
 
   // Fast reboot from 100°C Meltdown
   const handleFastReboot = () => {
+    lostVolatileOnCrashRef.current = 0; // Discard unrecovered cash on manual reboot
     audio.ensureContext();
     audio.playUpgradeSound();
     setDepthState((prev) => ({
@@ -484,6 +530,7 @@ export function CrazyGamesApp() {
             isTurboActive={isTurboActive}
             turboTimeRemaining={turboTimeRemaining}
             isDoubleFlushActive={isDoubleFlushActive}
+            lastFlushEvent={lastFlushEvent}
           />
         </div>
       )}
@@ -500,16 +547,26 @@ export function CrazyGamesApp() {
               ⚡ FAST REBOOT [SPACE]
             </button>
             <button
-              onClick={() =>
+              onClick={() => {
+                const lost = lostVolatileOnCrashRef.current;
+                const rewardDesc =
+                  lost > 0
+                    ? `Revive with +$${lost.toLocaleString()} unbanked cash restored & 35.0°C cool core`
+                    : 'Instant Reboot with 35.0°C Sub-Zero core';
                 handleTriggerRewardedAd(
                   'bsod_revive',
                   'EMERGENCY RECOVERY PROTOCOL',
-                  'Revive with 100% Volatile Cash Saved & Cool Core'
-                )
-              }
+                  rewardDesc,
+                  lost
+                );
+              }}
               className="px-6 py-3.5 bg-gradient-to-r from-amber-400 to-yellow-300 hover:from-amber-300 hover:to-yellow-200 text-black font-mono font-black text-xs sm:text-sm uppercase tracking-widest rounded-xl shadow-[0_0_25px_rgba(251,191,36,0.9)] transition-all active:scale-95 border-2 border-yellow-200 flex items-center gap-2"
             >
-              <span>🛡️ REVIVE & SAVE CASH [AD]</span>
+              <span>
+                {lostVolatileOnCrashRef.current > 0
+                  ? `🛡️ REVIVE & RESTORE +$${lostVolatileOnCrashRef.current.toLocaleString()} [AD]`
+                  : '🛡️ INSTANT REVIVE & COOL [AD]'}
+              </span>
             </button>
           </div>
         </div>
