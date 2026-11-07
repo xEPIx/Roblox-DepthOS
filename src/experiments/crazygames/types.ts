@@ -37,7 +37,8 @@ export type RewardedAdType =
   | 'turbo_overclock'     // 30s Double Mining Yield
   | 'bsod_revive'         // Instant Meltdown Revive with Zero Data Loss
   | 'milestone_double'    // 2x Mission Reward Claim
-  | 'post_flush_double';  // Double Previous Flush Payout
+  | 'post_flush_double'   // Double Previous Flush Payout
+  | 'rush_research';      // Instantly Complete Active Research Node
 
 export interface RewardedAdState {
   isOpen: boolean;
@@ -108,10 +109,49 @@ export interface ProgressionGoal {
 
 export interface ToastNotification {
   id: string;
-  type: 'achievement' | 'milestone' | 'goal';
+  type: 'achievement' | 'milestone' | 'goal' | 'research';
   title: string;
   subtitle: string;
   rewardText?: string;
   icon: string;
   timestamp: number;
+}
+
+// ==========================================
+// Long-Term Progression: Research Tree
+// ==========================================
+
+export type ResearchBranch = 'computing' | 'memory' | 'cooling' | 'storage' | 'automation';
+
+export interface ResearchBonuses {
+  dataMultiplier: number;
+  surgeMultiplier: number;
+  bonusRamMB: number;
+  flushSpeedMultiplier: number;
+  coolingMultiplier: number;
+  heatReduction: number;
+  payoutMultiplier: number;
+  autoRecovery: boolean;
+  autoCryoVent: boolean;
+  upgradeCostDiscount: number;
+}
+
+export interface ResearchNode {
+  id: string;
+  branch: ResearchBranch;
+  tier: number;
+  title: string;
+  description: string;
+  icon: string;
+  costBytes: number;
+  durationSeconds: number;
+  prerequisites: string[];
+  bonusLabel: string;
+  bonuses: Partial<ResearchBonuses>;
+}
+
+export interface ActiveResearch {
+  techId: string;
+  startTime: number;
+  durationMs: number;
 }

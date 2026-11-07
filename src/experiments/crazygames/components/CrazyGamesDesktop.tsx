@@ -23,7 +23,7 @@ import { FirstMinuteObjectiveBar } from './FirstMinuteObjectiveBar';
 import { NextGoalPanel } from './NextGoalPanel';
 import { CrazyGamesOnboardingOverlay } from './CrazyGamesOnboardingOverlay';
 import { ActiveGoalInfo } from '../goals';
-import { MilestoneBuffs } from '../types';
+import { MilestoneBuffs, ResearchBonuses, ActiveResearch } from '../types';
 
 interface CrazyGamesDesktopProps {
   state: DepthOSState;
@@ -58,6 +58,13 @@ interface CrazyGamesDesktopProps {
   onOpenAchievements?: () => void;
   onOpenMilestones?: () => void;
   milestoneBuffs?: MilestoneBuffs;
+  // Research Tree Additions
+  unlockedResearchCount?: number;
+  totalResearchCount?: number;
+  isResearching?: boolean;
+  onOpenResearch?: () => void;
+  researchBonuses?: ResearchBonuses;
+  activeResearch?: ActiveResearch | null;
 }
 
 export const CrazyGamesDesktop: React.FC<CrazyGamesDesktopProps> = ({
@@ -86,6 +93,12 @@ export const CrazyGamesDesktop: React.FC<CrazyGamesDesktopProps> = ({
   onOpenAchievements,
   onOpenMilestones,
   milestoneBuffs,
+  unlockedResearchCount = 0,
+  totalResearchCount = 15,
+  isResearching = false,
+  onOpenResearch,
+  researchBonuses,
+  activeResearch = null,
 }) => {
   const [floatingItems, setFloatingItems] = useState<FloatingRewardItem[]>([]);
   const [isProcessActive, setIsProcessActive] = useState<boolean>(false);
@@ -228,17 +241,21 @@ export const CrazyGamesDesktop: React.FC<CrazyGamesDesktopProps> = ({
   const isNearMeltdown = state.heat >= 95.0 && !state.isBSOD;
   const isFirstClickPending = objectives[0]?.current === 0;
   const thermalMult = calculateThermalMultiplier(state.heat, state.rootTree, state.faction);
-  const bytesPerClick = Math.round(calculateBytesPerProcess(state) * (milestoneBuffs?.dataMultiplier || 1));
-  const heatPerClick = calculateHeatPerProcess(state);
-  const flushDuration = calculateFlushDuration(state);
-  const potentialPayout = calculateFlushPayout(state);
+  const totalDataMult = (milestoneBuffs?.dataMultiplier || 1) * (researchBonuses?.dataMultiplier || 1);
+  const bytesPerClick = Math.round(calculateBytesPerProcess(state) * totalDataMult);
+  const heatReduction = researchBonuses?.heatReduction || 0;
+  const heatPerClick = Math.max(0.1, calculateHeatPerProcess(state) * (1 - heatReduction));
+  const flushDuration = calculateFlushDuration(state) / (researchBonuses?.flushSpeedMultiplier || 1);
+  const payoutBonusMult = researchBonuses?.payoutMultiplier || 1;
+  const potentialPayout = Math.round(calculateFlushPayout(state) * payoutBonusMult);
 
-  // Hardware Upgrade Costs
-  const cpuCost = getCpuUpgradeCost(state.hardware.cpuLevel);
-  const ramCost = getRamUpgradeCost(state.hardware.ramLevel);
-  const coolingCost = getCoolingUpgradeCost(state.hardware.coolingLevel);
-  const busCost = getBusUpgradeCost(state.hardware.busLevel);
-  const pasteCost = getThermalPasteCost(state.hardware.thermalPasteLevel);
+  // Hardware Upgrade Costs (with Smart Allocation discount)
+  const discount = researchBonuses?.upgradeCostDiscount || 0;
+  const cpuCost = Math.round(getCpuUpgradeCost(state.hardware.cpuLevel) * (1 - discount));
+  const ramCost = Math.round(getRamUpgradeCost(state.hardware.ramLevel) * (1 - discount));
+  const coolingCost = Math.round(getCoolingUpgradeCost(state.hardware.coolingLevel) * (1 - discount));
+  const busCost = Math.round(getBusUpgradeCost(state.hardware.busLevel) * (1 - discount));
+  const pasteCost = Math.round(getThermalPasteCost(state.hardware.thermalPasteLevel) * (1 - discount));
 
   // Handle Mining Core Click
   const handleProcess = (e?: React.MouseEvent) => {
@@ -426,6 +443,10 @@ export const CrazyGamesDesktop: React.FC<CrazyGamesDesktopProps> = ({
           unlockedMilestonesCount={unlockedMilestonesCount}
           onOpenAchievements={onOpenAchievements || (() => {})}
           onOpenMilestones={onOpenMilestones || (() => {})}
+          unlockedResearchCount={unlockedResearchCount}
+          totalResearchCount={totalResearchCount}
+          isResearching={isResearching}
+          onOpenResearch={onOpenResearch}
         />
       ) : (
         <FirstMinuteObjectiveBar
@@ -469,7 +490,7 @@ export const CrazyGamesDesktop: React.FC<CrazyGamesDesktopProps> = ({
                     state.isBufferStalled ? 'text-red-400 font-black animate-pulse' : 'text-gray-300'
                   }`}
                 >
-                  {Math.round(state.ramUsedMB)} / {state.ramMaxMB + (milestoneBuffs?.bonusRamMB || 0)} MB
+                  {Math.round(state.ramUsedMB)} / {state.ramMaxMB + (milestoneBuffs?.bonusRamMB || 0) + (researchBonuses?.bonusRamMB || 0)} MB
                 </span>
               </div>
             </div>
@@ -750,6 +771,39 @@ export const CrazyGamesDesktop: React.FC<CrazyGamesDesktopProps> = ({
                 {milestoneBuffs.dataMultiplier > 1 && <span>+{Math.round((milestoneBuffs.dataMultiplier - 1) * 100)}% DATA</span>}
                 {milestoneBuffs.bonusRamMB > 0 && <span>+{milestoneBuffs.bonusRamMB}MB RAM</span>}
                 <span className="text-cyan-400 group-hover:translate-x-0.5 transition-transform">➔</span>
+              </div>
+            </div>
+          )}
+
+          {/* R&D Quantum Research Lab Launcher Card */}
+          {onOpenResearch && (
+            <div
+              onClick={onOpenResearch}
+              className={`p-2.5 rounded-xl border text-xs flex items-center justify-between cursor-pointer transition-all shadow-md group ${
+                isResearching
+                  ? 'bg-gradient-to-r from-purple-950/90 via-[#1d0b36] to-purple-950/90 border-purple-400 shadow-[0_0_20px_rgba(168,85,247,0.5)] ring-1 ring-purple-400/50 animate-pulse'
+                  : 'bg-gradient-to-r from-[#120824]/90 to-[#0e071e]/90 hover:from-purple-950/80 hover:to-[#170a2f] border-purple-500/50 hover:border-purple-300'
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <span className="text-base">{isResearching ? '⏳' : '🔬'}</span>
+                <div>
+                  <div className="flex items-center gap-1.5 font-black text-purple-300 text-[11px] uppercase tracking-wider">
+                    <span>QUANTUM RESEARCH LAB</span>
+                    {isResearching && (
+                      <span className="text-[9px] bg-purple-500/30 text-purple-200 px-1.5 rounded animate-pulse">
+                        ACTIVE
+                      </span>
+                    )}
+                  </div>
+                  <span className="text-[10px] text-gray-400 font-bold block">
+                    {unlockedResearchCount} / {totalResearchCount} Techs Unlocked
+                  </span>
+                </div>
+              </div>
+              <div className="flex items-center gap-1 text-[11px] font-bold text-purple-300 group-hover:translate-x-0.5 transition-transform">
+                <span>R&D</span>
+                <span>➔</span>
               </div>
             </div>
           )}

@@ -14,6 +14,7 @@ export const AD_COOLDOWN_DURATIONS: Record<RewardedAdType, number> = {
   post_flush_double: 60,  // 60s cooldown on post-flush double offers
   bsod_revive: 10,        // 10s grace interval between revive attempts
   milestone_double: 0,    // Governed strictly by objective milestone completion
+  rush_research: 30,      // 30s cooldown on research rush requests
 };
 
 /**

@@ -10,6 +10,10 @@ interface NextGoalPanelProps {
   unlockedMilestonesCount: number;
   onOpenAchievements: () => void;
   onOpenMilestones: () => void;
+  unlockedResearchCount?: number;
+  totalResearchCount?: number;
+  isResearching?: boolean;
+  onOpenResearch?: () => void;
 }
 
 export const NextGoalPanel: React.FC<NextGoalPanelProps> = ({
@@ -21,6 +25,10 @@ export const NextGoalPanel: React.FC<NextGoalPanelProps> = ({
   unlockedMilestonesCount,
   onOpenAchievements,
   onOpenMilestones,
+  unlockedResearchCount = 0,
+  totalResearchCount = 15,
+  isResearching = false,
+  onOpenResearch,
 }) => {
   const { goal, current, target, percent, isCompleted, isClaimed, stepIndex, totalGoals } = goalInfo;
 
@@ -126,6 +134,24 @@ export const NextGoalPanel: React.FC<NextGoalPanelProps> = ({
               {unlockedMilestonesCount}
             </span>
           </button>
+
+          {onOpenResearch && (
+            <button
+              onClick={onOpenResearch}
+              className={`px-2.5 py-1.5 border text-xs font-black rounded-lg transition-all flex items-center gap-1.5 ${
+                isResearching
+                  ? 'bg-purple-950/80 border-purple-400 text-purple-200 shadow-[0_0_15px_rgba(168,85,247,0.7)] animate-pulse'
+                  : 'bg-purple-950/40 hover:bg-purple-900/60 border-purple-500/50 text-purple-300'
+              }`}
+              title="Open R&D Quantum Research Lab"
+            >
+              <span>🔬</span>
+              <span className="hidden sm:inline">RESEARCH</span>
+              <span className="text-[10px] bg-purple-500/20 px-1.5 py-0.2 rounded font-mono">
+                {isResearching ? '⏳' : `${unlockedResearchCount}/${totalResearchCount}`}
+              </span>
+            </button>
+          )}
         </div>
       </div>
     </div>

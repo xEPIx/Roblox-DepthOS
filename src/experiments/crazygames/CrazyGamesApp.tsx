@@ -44,6 +44,18 @@ import {
   getActiveGoalInfo,
   PROGRESSION_GOALS,
 } from './goals';
+import {
+  loadUnlockedResearch,
+  saveUnlockedResearch,
+  loadActiveResearch,
+  saveActiveResearch,
+  getResearchBonuses,
+  findTechById,
+  getActiveResearchProgress,
+  RESEARCH_NODES,
+} from './research';
+import { ResearchModal } from './components/ResearchModal';
+import { ActiveResearch } from './types';
 import { BSODOverlay } from '../../components/BSODOverlay';
 import { ThermalGrainOverlay } from '../../components/ThermalGrainOverlay';
 import { ThermalWarningOverlay } from '../../components/ThermalWarningOverlay';
@@ -167,6 +179,26 @@ export function CrazyGamesApp() {
   );
   const claimedGoalIdsRef = useRef(claimedGoalIds);
   claimedGoalIdsRef.current = claimedGoalIds;
+
+  // Research State
+  const [unlockedTechIds, setUnlockedTechIds] = useState<Set<string>>(() =>
+    loadUnlockedResearch()
+  );
+  const unlockedTechIdsRef = useRef(unlockedTechIds);
+  unlockedTechIdsRef.current = unlockedTechIds;
+
+  const [activeResearch, setActiveResearch] = useState<ActiveResearch | null>(() =>
+    loadActiveResearch()
+  );
+  const activeResearchRef = useRef(activeResearch);
+  activeResearchRef.current = activeResearch;
+
+  const [isResearchModalOpen, setIsResearchModalOpen] = useState<boolean>(false);
+
+  // Dynamic permanent research bonuses
+  const researchBonuses = useMemo(() => {
+    return getResearchBonuses(unlockedTechIds);
+  }, [unlockedTechIds]);
 
   // Stat tracking refs for achievement triggers
   const totalClicksRef = useRef<number>(0);
@@ -442,18 +474,43 @@ export function CrazyGamesApp() {
           isDoubleFlushRef.current = false;
         }
 
+        // Apply research storage payout bonus
+        if (researchBonuses.payoutMultiplier > 1) {
+          const researchBonus = Math.round(basePayout * (researchBonuses.payoutMultiplier - 1));
+          next.bankedBytes += researchBonus;
+          next.lifetimeBankedBytes += researchBonus;
+          next.currentXP += researchBonus;
+        }
+
         audio.playFlushChime();
 
         // Emit explicit flush event
+        const totalPayoutCalculated =
+          (wasDoubleActive ? basePayout * 2 : basePayout) +
+          (researchBonuses.payoutMultiplier > 1 ? Math.round(basePayout * (researchBonuses.payoutMultiplier - 1)) : 0);
+
         setLastFlushEvent({
           id: nextFlushEventIdRef.current++,
           basePayout,
-          totalPayout: wasDoubleActive ? basePayout * 2 : basePayout,
+          totalPayout: totalPayoutCalculated,
           wasAlreadyDoubled: wasDoubleActive,
           timestamp: Date.now(),
         });
 
         triggerCheckAchievements();
+      }
+
+      // Automation Research: Auto Cryo-Vent at 95°C
+      if (researchBonuses.autoCryoVent && next.heat >= 95.0 && !next.isBSOD) {
+        next.heat = 40.0;
+        audio.playCryoVent();
+      }
+
+      // Automation Research: Auto BSOD Recovery in 3s
+      if (researchBonuses.autoRecovery && prev.isBSOD && next.isBSOD && !isReviveActive) {
+        if (next.bsodCountdown > 3) {
+          next.bsodCountdown = 3;
+        }
       }
 
       if (sceneCtrlRef.current) {
@@ -478,8 +535,8 @@ export function CrazyGamesApp() {
   // Keyboard shortcut listener for CrazyGames browser play
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Suppress gameplay keyboard inputs while a rewarded ad is open
-      if (adModalStateRef.current.isOpen || isAchievementModalOpen) {
+      // Suppress gameplay keyboard inputs while a modal is open
+      if (adModalStateRef.current.isOpen || isAchievementModalOpen || isResearchModalOpen) {
         return;
       }
 
@@ -512,8 +569,8 @@ export function CrazyGamesApp() {
     };
 
     const handleKeyUp = (e: KeyboardEvent) => {
-      // Suppress gameplay keyup while ad modal is open
-      if (adModalStateRef.current.isOpen || isAchievementModalOpen) {
+      // Suppress gameplay keyup while a modal is open
+      if (adModalStateRef.current.isOpen || isAchievementModalOpen || isResearchModalOpen) {
         return;
       }
 
@@ -535,7 +592,7 @@ export function CrazyGamesApp() {
       window.removeEventListener('keyup', handleKeyUp);
       window.removeEventListener('pointerdown', handleFirstGesture);
     };
-  }, [gameState, isAchievementModalOpen]);
+  }, [gameState, isAchievementModalOpen, isResearchModalOpen]);
 
   const handleStartGame = () => {
     audio.ensureContext();
@@ -728,6 +785,105 @@ export function CrazyGamesApp() {
     }));
   }, []);
 
+  // Complete a research node, grant permanent bonuses, and trigger celebratory feedback
+  const completeResearchNode = useCallback((techId: string) => {
+    const tech = findTechById(techId);
+    if (!tech) return;
+
+    audio.ensureContext();
+    audio.playUpgradeSound();
+
+    try {
+      confetti({
+        particleCount: 65,
+        spread: 90,
+        origin: { y: 0.2 },
+        colors: ['#c084fc', '#e879f9', '#38bdf8', '#fbbf24', '#34d399'],
+      });
+    } catch {}
+
+    setUnlockedTechIds((prev) => {
+      const next = new Set(prev);
+      next.add(tech.id);
+      saveUnlockedResearch(next);
+      return next;
+    });
+
+    setActiveResearch(null);
+    saveActiveResearch(null);
+
+    addToast({
+      type: 'research',
+      title: `${tech.title} Complete!`,
+      subtitle: tech.description,
+      rewardText: tech.bonusLabel,
+      icon: tech.icon,
+    });
+  }, [addToast]);
+
+  // Research timer: checks active research progress and completes when duration expires
+  useEffect(() => {
+    if (!activeResearch) return;
+    const interval = setInterval(() => {
+      const cur = activeResearchRef.current;
+      if (!cur) return;
+      const { isComplete } = getActiveResearchProgress(cur);
+      if (isComplete) {
+        completeResearchNode(cur.techId);
+      }
+    }, 200);
+    return () => clearInterval(interval);
+  }, [activeResearch, completeResearchNode]);
+
+  // Start researching a technology node
+  const handleStartResearch = useCallback((techId: string) => {
+    const tech = findTechById(techId);
+    if (!tech) return;
+
+    const s = stateRef.current;
+    if (s.bankedBytes < tech.costBytes) return;
+    if (activeResearchRef.current) return;
+    if (unlockedTechIdsRef.current.has(techId)) return;
+
+    const reqsMet = tech.prerequisites.every((req) => unlockedTechIdsRef.current.has(req));
+    if (!reqsMet) return;
+
+    setDepthState((prev) => ({
+      ...prev,
+      bankedBytes: Math.max(0, prev.bankedBytes - tech.costBytes),
+    }));
+
+    const newActive: ActiveResearch = {
+      techId,
+      startTime: Date.now(),
+      durationMs: tech.durationSeconds * 1000,
+    };
+
+    setActiveResearch(newActive);
+    saveActiveResearch(newActive);
+
+    audio.ensureContext();
+    audio.playUpgradeSound();
+  }, []);
+
+  // Rush currently synthesizing research with rewarded ad
+  const handleRushResearchWithAd = useCallback(() => {
+    const cur = activeResearchRef.current;
+    if (!cur) return;
+    const tech = findTechById(cur.techId);
+    if (!tech) return;
+
+    handleTriggerRewardedAd(
+      'rush_research',
+      'RUSH QUANTUM RESEARCH',
+      `Instantly finish researching ${tech.title}!`,
+      undefined,
+      () => {
+        completeResearchNode(cur.techId);
+      }
+    );
+  }, [handleTriggerRewardedAd, completeResearchNode]);
+
   // Fast reboot from 100°C Meltdown
   const handleFastReboot = () => {
     lostVolatileOnCrashRef.current = 0;
@@ -760,23 +916,31 @@ export function CrazyGamesApp() {
     if (isTurboActive) {
       generated *= 2;
     }
-    // Apply permanent Milestone Data Multiplier
-    if (milestoneBuffs.dataMultiplier > 1) {
-      generated = Math.round(generated * milestoneBuffs.dataMultiplier);
+    // Apply permanent Milestone and Research Data Multipliers
+    let totalDataMult = milestoneBuffs.dataMultiplier * researchBonuses.dataMultiplier;
+    const surgeTemp = getSurgeThreshold(s.rootTree);
+    const inSurge = s.heat >= surgeTemp && s.heat < CRITICAL_TEMP && !s.isBSOD;
+    if (inSurge && researchBonuses.surgeMultiplier > 1) {
+      totalDataMult *= researchBonuses.surgeMultiplier;
+    }
+    if (totalDataMult > 1) {
+      generated = Math.round(generated * totalDataMult);
     }
 
-    const heatAdded = calculateHeatPerProcess(s);
+    let heatAdded = calculateHeatPerProcess(s);
+    if (researchBonuses.heatReduction > 0) {
+      heatAdded = Math.max(0.1, heatAdded * (1 - researchBonuses.heatReduction));
+    }
     const ramCost = calculateRamCost(generated);
 
-    const surgeTemp = getSurgeThreshold(s.rootTree);
-    const isCritical = s.heat >= surgeTemp;
+    const isCritical = inSurge;
     audio.playProcessClick(s.soundpack, isCritical);
 
     if (sceneCtrlRef.current) {
       sceneCtrlRef.current.triggerPressVisual(isCritical);
     }
 
-    const effectiveMaxRam = s.ramMaxMB + milestoneBuffs.bonusRamMB;
+    const effectiveMaxRam = s.ramMaxMB + milestoneBuffs.bonusRamMB + researchBonuses.bonusRamMB;
     if (s.ramUsedMB + ramCost > effectiveMaxRam) {
       setDepthState((prev) => ({ ...prev, isBufferStalled: true }));
       triggerCheckAchievements();
@@ -846,6 +1010,11 @@ export function CrazyGamesApp() {
     else if (type === 'cooling') cost = getCoolingUpgradeCost(s.hardware.coolingLevel);
     else if (type === 'bus') cost = getBusUpgradeCost(s.hardware.busLevel);
     else if (type === 'paste') cost = getThermalPasteCost(s.hardware.thermalPasteLevel);
+
+    const discount = researchBonuses.upgradeCostDiscount;
+    if (discount > 0) {
+      cost = Math.round(cost * (1 - discount));
+    }
 
     if (s.bankedBytes < cost) return;
 
@@ -918,6 +1087,18 @@ export function CrazyGamesApp() {
         milestoneBuffs={milestoneBuffs}
         lifetimeBankedBytes={depthState.lifetimeBankedBytes}
         initialTab={achievementModalTab}
+      />
+
+      {/* R&D Quantum Research Lab Modal */}
+      <ResearchModal
+        isOpen={isResearchModalOpen}
+        onClose={() => setIsResearchModalOpen(false)}
+        bankedBytes={depthState.bankedBytes}
+        unlockedTechIds={unlockedTechIds}
+        activeResearch={activeResearch}
+        researchBonuses={researchBonuses}
+        onStartResearch={handleStartResearch}
+        onRushResearchWithAd={handleRushResearchWithAd}
       />
 
       {/* Rewarded Ad Modal */}
@@ -1015,6 +1196,12 @@ export function CrazyGamesApp() {
               setIsAchievementModalOpen(true);
             }}
             milestoneBuffs={milestoneBuffs}
+            unlockedResearchCount={unlockedTechIds.size}
+            totalResearchCount={RESEARCH_NODES.length}
+            isResearching={Boolean(activeResearch)}
+            onOpenResearch={() => setIsResearchModalOpen(true)}
+            researchBonuses={researchBonuses}
+            activeResearch={activeResearch}
           />
         </div>
       )}
