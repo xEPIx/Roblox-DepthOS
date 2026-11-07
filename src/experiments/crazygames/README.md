@@ -67,3 +67,50 @@ In strict accordance with the safety rules:
 - [x] Fully keyboard playable (`SPACE`, `HOLD F`, `SPACE + E`, `ENTER`) and mobile touch friendly
 - [x] Responsive layout across 1080p, 720p, and tablet viewports
 - [x] Strictly opt-in rewarded ads (zero intrusive forced interstitials)
+
+---
+
+## 6. CrazyGames Rewarded Ads Verification Guide
+
+### A. What Automated Tests Establish (`npm test`)
+- **Watchdog Coverage**: Covers hung SDK initialization and hung `requestAd` calls, timing out safely within the bounded timeout without granting false rewards.
+- **Watchdog Clearing**: Strictly cancelled when `adStarted` fires, allowing full video ads to play without interruption.
+- **Token Safety & Exactly-Once Grant**: Duplicate or delayed callbacks (`adStarted`, `adFinished`, `adError`) are completely dropped after attempt completion or invalidation.
+- **Single-Application Cooldown**: Cooldown begins at confirmed playback start (`adStarted`), does NOT duplicate or reset upon `adFinished`/claim, and is NEVER applied on cancellation, SDK error, watchdog timeout, or preview mode.
+- **Mid-Playback Error Recovery**: Resumes simulation, unpauses turbo timer, resumes BSOD countdown, restores audio mute, and rejects any later `adFinished` callbacks.
+- **Sound Preservation**: Player sound preference is snapshotted upon attempt start and restored on every exit (finish, cancel, timeout, error, unmount).
+- **BSOD Revive Integrity**: Countdown holds during active revive attempt, resumes on failure, and restores unbanked volatile cash and RAM buffer exactly once on success.
+
+### B. Manual Verification Checklist (Standalone Local Preview)
+1. Open the game in local browser preview (`localhost:3000`).
+2. Trigger any rewarded ad boost (`[2X NEXT FLUSH]`, `[FREE NITROGEN DUMP]`, `[30s OVERCLOCK]`, or `[REVIVE & RESTORE]`).
+3. Verify the modal opens and immediately displays:
+   - `⚠️ ADS UNAVAILABLE IN PREVIEW`
+   - Target reward details and clear explanation that real rewarded ads serve inside the CrazyGames container.
+4. Click `[CLOSE]`.
+5. Verify:
+   - Zero rewards granted.
+   - Zero cooldown applied (boost buttons remain immediately available).
+   - Audio and simulation continue unimpeded.
+
+### C. Manual Verification Checklist (CrazyGames Live Container / SDK QA Tool)
+1. Load the game URL in the [CrazyGames SDK QA Tool](https://sdk.crazygames.com/).
+2. **Double Flush (`double_flush`)**:
+   - Tap `[AD BOOST: 2X NEXT FLUSH PAYOUT]`.
+   - Verify CrazyGames video ad plays and game audio mutes.
+   - Watch to completion: verify modal closes, audio unmutes, "2X FLUSH BOOST ACTIVE!" badge displays, and button enters 45s cooldown (`COOLDOWN 45s` -> `44s` ...).
+   - Hold `[F]` to bank cash: verify banked yield is doubled.
+3. **Emergency Cryo Dump (`cryo_dump`)**:
+   - Push CPU heat above 55°C.
+   - Tap `[❄️ AD BOOST: FREE NITROGEN DUMP]`.
+   - Watch to completion: verify CPU heat immediately resets to 25.0°C and 30s cooldown begins.
+4. **Turbo Overclock (`turbo_overclock`)**:
+   - Tap `[AD BOOST: 30s 2X OVERCLOCK]`.
+   - Watch to completion: verify mining yield doubles for 30s, then enters 45s cooldown.
+5. **BSOD Meltdown Revive (`bsod_revive`)**:
+   - Overheat past 100.0°C to trigger BSOD crash with unbanked volatile cash.
+   - Tap `[🛡️ REVIVE & RESTORE +$X [AD]]`.
+   - Watch to completion: verify system recovers to 35.0°C with 100% of lost cash and RAM restored, countdown resets, and 10s grace cooldown begins.
+6. **Cancellation / Ad Error Flow**:
+   - Trigger any ad boost and close the CrazyGames ad overlay before completion.
+   - Verify: "AD COULD NOT BE COMPLETED" error screen appears, no reward is granted, no cooldown penalty is applied, and audio and simulation resume immediately.

@@ -46,17 +46,61 @@ export function CrazyGamesApp() {
   const isAdPlayingRef = useRef<boolean>(false);
   isAdPlayingRef.current = isAdPlaying;
 
+  // Single-application guard: ensures each attempt ID applies cooldown at most once
+  const appliedCooldownAttemptsRef = useRef<Set<string>>(new Set());
+
+  // Ad Pacing & Cooldown state
+  const [adCooldowns, setAdCooldowns] = useState<Record<string, number>>({});
+  const adCooldownsRef = useRef<Record<string, number>>({});
+  adCooldownsRef.current = adCooldowns;
+
+  const [cooldownNow, setCooldownNow] = useState<number>(() => Date.now());
+
+  // Dedicated 1-second interval driving countdown label updates and expiry re-renders
+  useEffect(() => {
+    const hasActiveCooldown = Object.values(adCooldowns).some((exp) => exp > Date.now());
+    if (!hasActiveCooldown) return;
+
+    const interval = setInterval(() => {
+      const now = Date.now();
+      setCooldownNow(now);
+      const stillActive = Object.values(adCooldownsRef.current).some((exp) => exp > now);
+      if (!stillActive) {
+        clearInterval(interval);
+      }
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [adCooldowns]);
+
+  // Safe cooldown recorder: starts cooldown once per attempt on confirmed playback
+  const recordCooldownForAttempt = useCallback((attemptId: string, type: RewardedAdType) => {
+    if (!attemptId || !type) return;
+    if (appliedCooldownAttemptsRef.current.has(attemptId)) {
+      return; // Already applied for this attempt: do not duplicate or reset
+    }
+    appliedCooldownAttemptsRef.current.add(attemptId);
+    setAdCooldowns((prev) => setAdCooldownExpiry(type, prev));
+  }, []);
+
   const handlePlaybackStateChange = useCallback((isPlaying: boolean) => {
     setIsAdPlaying(isPlaying);
     isAdPlayingRef.current = isPlaying;
     if (isPlaying) {
-      // Cooldown fairness: apply cooldown only when playback actually starts
-      const currentType = adModalStateRef.current.type;
-      if (currentType) {
-        setAdCooldowns((prev) => setAdCooldownExpiry(currentType, prev));
+      // Cooldown fairness: start cooldown countdown immediately at confirmed playback start
+      const currentAd = adModalStateRef.current;
+      if (currentAd.attemptId && currentAd.type) {
+        recordCooldownForAttempt(currentAd.attemptId, currentAd.type);
       }
     }
-  }, []);
+  }, [recordCooldownForAttempt]);
+
+  const handleConfirmedPlayback = useCallback((attemptId: string) => {
+    const currentAd = adModalStateRef.current;
+    if (attemptId && currentAd.type) {
+      recordCooldownForAttempt(attemptId, currentAd.type);
+    }
+  }, [recordCooldownForAttempt]);
 
   // Tracks whether a BSOD revive ad attempt is actively underway
   const [isReviveAttemptActive, setIsReviveAttemptActive] = useState<boolean>(false);
@@ -72,14 +116,9 @@ export function CrazyGamesApp() {
   const [isTurboActive, setIsTurboActive] = useState<boolean>(false);
   const [turboTimeRemaining, setTurboTimeRemaining] = useState<number>(0);
 
-  // Ad Pacing & Cooldown state
-  const [adCooldowns, setAdCooldowns] = useState<Record<string, number>>({});
-  const adCooldownsRef = useRef<Record<string, number>>({});
-  adCooldownsRef.current = adCooldowns;
-
   const getCooldownRemaining = useCallback((type: RewardedAdType) => {
-    return getAdCooldownRemaining(type, adCooldownsRef.current);
-  }, []);
+    return getAdCooldownRemaining(type, adCooldownsRef.current, cooldownNow);
+  }, [cooldownNow]);
 
   // Payout lineage & BSOD crash cash and RAM recovery refs
   const [lastFlushEvent, setLastFlushEvent] = useState<FlushEvent | null>(null);
@@ -348,7 +387,8 @@ export function CrazyGamesApp() {
       return;
     }
     grantedAttemptsRef.current.add(attemptId);
-    setAdCooldowns((prev) => setAdCooldownExpiry(currentAd.type, prev));
+    // Cooldown is initiated exactly once per attempt (skipped here if already recorded on playback start)
+    recordCooldownForAttempt(attemptId, currentAd.type);
 
     audio.ensureContext();
     audio.playUpgradeSound();
@@ -399,7 +439,7 @@ export function CrazyGamesApp() {
     if (currentAd.onSuccess) {
       currentAd.onSuccess();
     }
-  }, []);
+  }, [recordCooldownForAttempt]);
 
   const handleCloseAdModal = useCallback(() => {
     setIsAdPlaying(false);
@@ -569,6 +609,7 @@ export function CrazyGamesApp() {
         onClose={handleCloseAdModal}
         onPlaybackStateChange={handlePlaybackStateChange}
         onAttemptActiveChange={handleAttemptActiveChange}
+        onConfirmedPlayback={handleConfirmedPlayback}
       />
 
       {/* High-Impact Arcade Title Screen or Active Arcade Desktop */}
@@ -656,8 +697,8 @@ export function CrazyGamesApp() {
               ⚡ FAST REBOOT [SPACE]
             </button>
             {(() => {
-              const isReviveOnCd = isAdOnCooldown('bsod_revive', adCooldowns);
-              const cdRemaining = getAdCooldownRemaining('bsod_revive', adCooldowns);
+              const isReviveOnCd = isAdOnCooldown('bsod_revive', adCooldowns, cooldownNow);
+              const cdRemaining = getAdCooldownRemaining('bsod_revive', adCooldowns, cooldownNow);
               return (
                 <button
                   disabled={isReviveOnCd}

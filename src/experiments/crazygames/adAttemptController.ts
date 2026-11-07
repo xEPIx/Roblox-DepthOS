@@ -61,6 +61,7 @@ const defaultAudioProvider: AudioProvider = {
  * 4. Exactly-once reward grant per attempt ID across the session.
  * 5. Audio mute state is snapshotted upon attempt start and restored on all terminal outcomes (finish, error, timeout, cancel, unmount).
  * 6. Cooldown fairness: Cooldowns are applied only upon confirmed playback/completion.
+ * 7. Duplicate callback safety: duplicate adStarted, adFinished, or adError calls cannot reset state or duplicate events.
  */
 export class AdAttemptController {
   public activeAttemptId: string | null = null;
@@ -168,6 +169,10 @@ export class AdAttemptController {
             if (this.activeAttemptId !== attemptId) {
               return;
             }
+            if (this.isPlaying) {
+              // Duplicate adStarted callback protection
+              return;
+            }
             this.setStatus('playing');
             this.notifyPlaybackState(true);
             this.callbacks.onConfirmedPlayback?.(attemptId);
@@ -189,6 +194,7 @@ export class AdAttemptController {
             if (this.activeAttemptId !== attemptId) {
               return;
             }
+            // Invalidate active attempt immediately so subsequent callbacks are dropped
             this.activeAttemptId = null;
             this.notifyPlaybackState(false);
             this.notifyAttemptActive(false);

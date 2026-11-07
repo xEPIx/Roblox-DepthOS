@@ -313,7 +313,93 @@ describe('CrazyGames Rewarded-Ad Resilience & Shared Controller Suite', () => {
     assert.equal(rewardCount, 1, 'Second adFinished must be ignored');
   });
 
-  it('7. Missing SDK / Standalone preview: shows unavailable status with zero false rewards', async () => {
+  it('7. Duplicate adStarted callback: ignores duplicate and prevents duplicate playback events', async () => {
+    let confirmedPlaybackCount = 0;
+    let playbackStateChanges: boolean[] = [];
+    let savedCallbacks: { adStarted?: () => void } = {};
+
+    const sdk: SdkProvider = {
+      ensureReady: async () => true,
+      isAdAvailable: () => true,
+      requestAd: (_type, callbacks) => {
+        savedCallbacks = callbacks;
+        callbacks.adStarted?.();
+      },
+    };
+
+    const controller = new AdAttemptController({
+      onConfirmedPlayback: () => {
+        confirmedPlaybackCount++;
+      },
+      onPlaybackStateChange: (isPlaying) => {
+        playbackStateChanges.push(isPlaying);
+      },
+    }, { sdkProvider: sdk });
+
+    controller.startAttempt('dup_adstarted_token');
+    await sleep(15);
+
+    assert.equal(controller.isPlaying, true);
+    assert.equal(confirmedPlaybackCount, 1);
+    assert.deepEqual(playbackStateChanges, [true]);
+
+    // Buggy SDK fires adStarted a second time
+    savedCallbacks.adStarted?.();
+
+    assert.equal(confirmedPlaybackCount, 1, 'Duplicate adStarted must not re-trigger onConfirmedPlayback');
+    assert.deepEqual(playbackStateChanges, [true], 'Duplicate adStarted must not emit duplicate state changes');
+  });
+
+  it('8. Error after playback begins: resumes simulation and audio, drops later adFinished', async () => {
+    const mockAudio = createMockAudio(false);
+    let rewardCount = 0;
+    let playbackChanges: boolean[] = [];
+    let attemptActiveChanges: boolean[] = [];
+    let savedCallbacks: { adStarted?: () => void; adError?: (err: unknown) => void; adFinished?: () => void } = {};
+
+    const sdk: SdkProvider = {
+      ensureReady: async () => true,
+      isAdAvailable: () => true,
+      requestAd: (_type, callbacks) => {
+        savedCallbacks = callbacks;
+        callbacks.adStarted?.();
+      },
+    };
+
+    const controller = new AdAttemptController({
+      onPlaybackStateChange: (isPlaying) => {
+        playbackChanges.push(isPlaying);
+      },
+      onAttemptActiveChange: (isActive) => {
+        attemptActiveChanges.push(isActive);
+      },
+      onReward: () => {
+        rewardCount++;
+      },
+    }, { sdkProvider: sdk, audioProvider: mockAudio });
+
+    controller.startAttempt('error_during_play');
+    await sleep(15);
+
+    assert.equal(controller.adStatus, 'playing');
+    assert.equal(controller.isPlaying, true);
+    assert.equal(mockAudio.muted, true);
+
+    // Mid-playback error occurs (e.g. video decoder crash or user closed iframe)
+    savedCallbacks.adError?.('Video stream interrupted');
+
+    assert.equal(controller.adStatus, 'error');
+    assert.equal(controller.isPlaying, false, 'Playback must be false to resume simulation');
+    assert.equal(controller.isAttemptActive, false, 'Attempt active must be false to resume BSOD countdown');
+    assert.equal(mockAudio.muted, false, 'Audio mute must be restored immediately');
+    assert.equal(controller.activeAttemptId, null, 'Active attempt must be invalidated');
+
+    // Late adFinished arrives after the error
+    savedCallbacks.adFinished?.();
+    assert.equal(rewardCount, 0, 'No reward may be granted after mid-playback error');
+  });
+
+  it('9. Missing SDK / Standalone preview: shows unavailable status with zero false rewards', async () => {
     const mockAudio = createMockAudio(false);
     let rewardCount = 0;
 
@@ -345,7 +431,7 @@ describe('CrazyGames Rewarded-Ad Resilience & Shared Controller Suite', () => {
     assert.equal(rewardCount, 0, 'No reward may be granted when SDK is unavailable');
   });
 
-  it('8. Component unmount / disposal (dispose): cancels timer and restores audio cleanly', async () => {
+  it('10. Component unmount / disposal (dispose): cancels timer and restores audio cleanly', async () => {
     const mockAudio = createMockAudio(false);
     let rewardCount = 0;
 
@@ -382,7 +468,7 @@ describe('CrazyGames Rewarded-Ad Resilience & Shared Controller Suite', () => {
     assert.equal(rewardCount, 0);
   });
 
-  it('9. Mute restoration preserves initial player sound preference', async () => {
+  it('11. Mute restoration preserves initial player sound preference', async () => {
     // Case A: Player was UNMUTED before ad -> must be UNMUTED after ad
     const audioUnmuted = createMockAudio(false);
     const sdkA: SdkProvider = {
@@ -406,36 +492,57 @@ describe('CrazyGames Rewarded-Ad Resilience & Shared Controller Suite', () => {
     assert.equal(audioMuted.muted, true, 'Must preserve pre-existing muted state');
   });
 
-  it('10. Cooldown fairness: no cooldown on error/cancel/preview; applied on confirmed playback', () => {
-    const now = 1000000;
+  it('12. Cooldown single-application rule: applied once on playback start, not duplicated on reward claim', () => {
+    const appliedAttempts = new Set<string>();
     let cooldowns: Record<string, number> = {};
+    const now = 1000000;
 
-    // Scenario A: Failed / cancelled / unavailable ad attempt
-    // In our fair policy, cooldowns are NOT applied when opening the offer.
-    // If an ad fails or is cancelled before playback, cooldowns remain empty.
-    assert.equal(isAdOnCooldown('double_flush', cooldowns, now), false);
-    assert.equal(getAdCooldownRemaining('double_flush', cooldowns, now), 0);
+    const recordCooldown = (attemptId: string, type: RewardedAdType) => {
+      if (appliedAttempts.has(attemptId)) return;
+      appliedAttempts.add(attemptId);
+      cooldowns = setAdCooldownExpiry(type, cooldowns, AD_COOLDOWN_DURATIONS[type], now);
+    };
 
-    // Scenario B: Confirmed playback / claim sets cooldown
-    cooldowns = setAdCooldownExpiry('double_flush', cooldowns, AD_COOLDOWN_DURATIONS.double_flush, now);
+    const attemptId = 'cg_attempt_single_cd_1';
+
+    // Step 1: Confirmed playback starts -> sets cooldown at now + 45000
+    recordCooldown(attemptId, 'double_flush');
     assert.equal(isAdOnCooldown('double_flush', cooldowns, now), true);
     assert.equal(getAdCooldownRemaining('double_flush', cooldowns, now), 45);
 
-    // Other ad types remain available independently
-    assert.equal(isAdOnCooldown('cryo_dump', cooldowns, now), false);
+    // Step 2: Ad finishes 15 seconds later -> reward claimed
+    const claimTime = now + 15000;
+    // Attempting to record again on claim must be a no-op!
+    recordCooldown(attemptId, 'double_flush');
 
-    // After 45 seconds:
-    const expiredTime = now + 45001;
-    assert.equal(isAdOnCooldown('double_flush', cooldowns, expiredTime), false);
-    assert.equal(getAdCooldownRemaining('double_flush', cooldowns, expiredTime), 0);
+    // Expiry must STILL be based on original playback start time (now + 45s = 1045000), not claimTime + 45s!
+    assert.equal(getAdCooldownRemaining('double_flush', cooldowns, claimTime), 30);
+    assert.equal(getAdCooldownRemaining('double_flush', cooldowns, now + 45001), 0);
   });
 
-  it('11. Overlapping attempt prevention guard', () => {
+  it('13. Cooldown fairness: cancelled, errored, timed out, and preview attempts NEVER apply cooldown', () => {
+    const appliedAttempts = new Set<string>();
+    let cooldowns: Record<string, number> = {};
+    const now = 1000000;
+
+    const recordCooldownOnConfirmedPlayback = (attemptId: string, type: RewardedAdType) => {
+      if (appliedAttempts.has(attemptId)) return;
+      appliedAttempts.add(attemptId);
+      cooldowns = setAdCooldownExpiry(type, cooldowns, AD_COOLDOWN_DURATIONS[type], now);
+    };
+
+    // User triggers offer, but it fails before playback (e.g. preview mode, user cancels, or network error)
+    // Cooldown is NOT recorded
+    assert.equal(isAdOnCooldown('turbo_overclock', cooldowns, now), false);
+    assert.equal(getAdCooldownRemaining('turbo_overclock', cooldowns, now), 0);
+  });
+
+  it('14. Overlapping attempt prevention guard blocks rapid clicks', () => {
     let isOpen = false;
     let attemptCount = 0;
 
     const triggerOffer = () => {
-      // Logic from handleTriggerRewardedAd
+      // Guard from handleTriggerRewardedAd
       if (isOpen) {
         return; // Guard blocks overlap
       }
@@ -452,8 +559,8 @@ describe('CrazyGames Rewarded-Ad Resilience & Shared Controller Suite', () => {
     assert.equal(attemptCount, 1, 'Duplicate click must be blocked while attempt is in progress');
   });
 
-  it('12. BSOD revive cash & RAM recovery correctness', () => {
-    // 12a. Verify crash captures exact cash and RAM
+  it('15. BSOD revive cash & RAM recovery correctness', () => {
+    // 15a. Verify crash captures exact cash and RAM
     const crashedVolatile = 4250;
     const crashedRam = 256;
     let lostVolatile = crashedVolatile;
@@ -477,7 +584,7 @@ describe('CrazyGames Rewarded-Ad Resilience & Shared Controller Suite', () => {
     assert.equal(restoredRam, 256);
     assert.equal(lostVolatile, 0, 'Lost cash must be consumed and reset');
 
-    // 12b. Normal reboot discards unrecovered cash
+    // 15b. Normal reboot discards unrecovered cash
     let manualLostCash = 3000;
     const fastReboot = () => {
       manualLostCash = 0;
