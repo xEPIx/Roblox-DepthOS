@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import confetti from 'canvas-confetti';
 import { DepthOSState } from '../../types/depthos';
 import {
   createInitialDepthOSState,
@@ -18,9 +19,31 @@ import { audio } from '../../audio/depthosAudio';
 import { createDepthOSThreeScene, SceneController } from '../../game/threeScene';
 import { CrazyGamesDesktop } from './components/CrazyGamesDesktop';
 import { RewardedAdModal } from './components/RewardedAdModal';
-import { RewardedAdState, RewardedAdType, FlushEvent } from './types';
+import { AchievementModal } from './components/AchievementModal';
+import { ToastNotificationOverlay } from './components/ToastNotificationOverlay';
+import { RewardedAdState, RewardedAdType, FlushEvent, ToastNotification } from './types';
 import { initCrazyGamesSdk } from './crazyGamesSdk';
 import { getAdCooldownRemaining, isAdOnCooldown, setAdCooldownExpiry } from './adPacing';
+import {
+  loadUnlockedAchievements,
+  saveUnlockedAchievements,
+  evaluateAchievements,
+  getDecoratedAchievements,
+  ACHIEVEMENTS_DEFINITIONS,
+} from './achievements';
+import {
+  loadAcknowledgedMilestones,
+  saveAcknowledgedMilestones,
+  getMilestoneBuffs,
+  checkNewMilestones,
+  getDecoratedMilestones,
+} from './milestones';
+import {
+  loadClaimedGoalIds,
+  saveClaimedGoalIds,
+  getActiveGoalInfo,
+  PROGRESSION_GOALS,
+} from './goals';
 import { BSODOverlay } from '../../components/BSODOverlay';
 import { ThermalGrainOverlay } from '../../components/ThermalGrainOverlay';
 import { ThermalWarningOverlay } from '../../components/ThermalWarningOverlay';
@@ -120,6 +143,187 @@ export function CrazyGamesApp() {
     return getAdCooldownRemaining(type, adCooldownsRef.current, cooldownNow);
   }, [cooldownNow]);
 
+  // ==========================================
+  // Retention: Achievements, Milestones & Goals
+  // ==========================================
+
+  // Achievements State
+  const [unlockedAchievements, setUnlockedAchievements] = useState<Record<string, number>>(() =>
+    loadUnlockedAchievements()
+  );
+  const unlockedAchievementsRef = useRef(unlockedAchievements);
+  unlockedAchievementsRef.current = unlockedAchievements;
+
+  // Milestones State
+  const [acknowledgedMilestones, setAcknowledgedMilestones] = useState<Record<string, number>>(() =>
+    loadAcknowledgedMilestones()
+  );
+  const acknowledgedMilestonesRef = useRef(acknowledgedMilestones);
+  acknowledgedMilestonesRef.current = acknowledgedMilestones;
+
+  // Progression Goals State
+  const [claimedGoalIds, setClaimedGoalIds] = useState<Set<string>>(() =>
+    loadClaimedGoalIds()
+  );
+  const claimedGoalIdsRef = useRef(claimedGoalIds);
+  claimedGoalIdsRef.current = claimedGoalIds;
+
+  // Stat tracking refs for achievement triggers
+  const totalClicksRef = useRef<number>(0);
+  const totalFlushesRef = useRef<number>(0);
+  const totalCrashesRef = useRef<number>(0);
+  const totalRevivesRef = useRef<number>(0);
+  const highestHeatRef = useRef<number>(depthState.heat);
+  const hitExtremeHeatRef = useRef<boolean>(false);
+
+  // Dynamic permanent milestone buffs
+  const milestoneBuffs = useMemo(() => {
+    return getMilestoneBuffs(depthState.lifetimeBankedBytes);
+  }, [depthState.lifetimeBankedBytes]);
+
+  // Toast Notifications Stack
+  const [toasts, setToasts] = useState<ToastNotification[]>([]);
+  const nextToastIdRef = useRef<number>(1);
+
+  const addToast = useCallback((toast: Omit<ToastNotification, 'id' | 'timestamp'>) => {
+    const id = `toast_${nextToastIdRef.current++}_${Date.now()}`;
+    const newToast: ToastNotification = {
+      ...toast,
+      id,
+      timestamp: Date.now(),
+    };
+    setToasts((prev) => [...prev.slice(-3), newToast]);
+    setTimeout(() => {
+      setToasts((prev) => prev.filter((t) => t.id !== id));
+    }, 4500);
+  }, []);
+
+  const dismissToast = useCallback((id: string) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  }, []);
+
+  // Achievement Modal State
+  const [isAchievementModalOpen, setIsAchievementModalOpen] = useState<boolean>(false);
+  const [achievementModalTab, setAchievementModalTab] = useState<'achievements' | 'milestones'>('achievements');
+
+  // Achievement Evaluator Routine
+  const triggerCheckAchievements = useCallback(() => {
+    const s = stateRef.current;
+    if (s.heat >= 90.0 && !s.isBSOD) {
+      hitExtremeHeatRef.current = true;
+    }
+    if (s.heat > highestHeatRef.current) {
+      highestHeatRef.current = s.heat;
+    }
+
+    const { newUnlocks, updatedMap } = evaluateAchievements({
+      volatileBytes: s.volatileBytes,
+      bankedBytes: s.bankedBytes,
+      lifetimeBankedBytes: s.lifetimeBankedBytes,
+      heat: s.heat,
+      isBSOD: s.isBSOD,
+      hardware: s.hardware,
+      totalClicks: totalClicksRef.current,
+      totalFlushes: totalFlushesRef.current,
+      totalCrashes: totalCrashesRef.current,
+      totalRevives: totalRevivesRef.current,
+      hitExtremeHeatSinceSafe: hitExtremeHeatRef.current,
+      unlockedMap: unlockedAchievementsRef.current,
+    });
+
+    if (newUnlocks.length > 0) {
+      setUnlockedAchievements(updatedMap);
+      saveUnlockedAchievements(updatedMap);
+
+      let totalReward = 0;
+      for (const ach of newUnlocks) {
+        totalReward += ach.rewardCash;
+        addToast({
+          type: 'achievement',
+          title: ach.title,
+          subtitle: ach.description,
+          rewardText: `+$${ach.rewardCash.toLocaleString()} CASH`,
+          icon: ach.icon,
+        });
+      }
+
+      audio.playUpgradeSound();
+      try {
+        confetti({
+          particleCount: 50,
+          spread: 75,
+          origin: { y: 0.15 },
+          colors: ['#fbbf24', '#f59e0b', '#10b981'],
+        });
+      } catch {}
+
+      if (totalReward > 0) {
+        setDepthState((prev) => ({
+          ...prev,
+          bankedBytes: prev.bankedBytes + totalReward,
+          lifetimeBankedBytes: prev.lifetimeBankedBytes + totalReward,
+          currentXP: prev.currentXP + totalReward,
+        }));
+      }
+    }
+  }, [addToast]);
+
+  // Monitor Milestone progression
+  useEffect(() => {
+    const { newlyReached, updatedMap } = checkNewMilestones(
+      depthState.lifetimeBankedBytes,
+      acknowledgedMilestonesRef.current
+    );
+    if (newlyReached.length > 0) {
+      setAcknowledgedMilestones(updatedMap);
+      saveAcknowledgedMilestones(updatedMap);
+
+      for (const ms of newlyReached) {
+        addToast({
+          type: 'milestone',
+          title: ms.title,
+          subtitle: ms.description,
+          rewardText: ms.buffLabel,
+          icon: ms.icon,
+        });
+        audio.playUpgradeSound();
+        try {
+          confetti({
+            particleCount: 45,
+            spread: 70,
+            origin: { y: 0.15 },
+            colors: ['#06b6d4', '#38bdf8', '#00f5ff'],
+          });
+        } catch {}
+      }
+    }
+  }, [depthState.lifetimeBankedBytes, addToast]);
+
+  // Context-aware Progression Goal Evaluator
+  const activeGoalInfo = useMemo(() => {
+    return getActiveGoalInfo(
+      {
+        totalClicks: totalClicksRef.current,
+        volatileBytes: depthState.volatileBytes,
+        bankedBytes: depthState.bankedBytes,
+        lifetimeBankedBytes: depthState.lifetimeBankedBytes,
+        heat: depthState.heat,
+        hardware: depthState.hardware,
+        totalFlushes: totalFlushesRef.current,
+        highestHeatSeen: highestHeatRef.current,
+      },
+      claimedGoalIds
+    );
+  }, [
+    depthState.volatileBytes,
+    depthState.bankedBytes,
+    depthState.lifetimeBankedBytes,
+    depthState.heat,
+    depthState.hardware,
+    claimedGoalIds,
+  ]);
+
+
   // Payout lineage & BSOD crash cash and RAM recovery refs
   const [lastFlushEvent, setLastFlushEvent] = useState<FlushEvent | null>(null);
   const nextFlushEventIdRef = useRef<number>(1);
@@ -190,7 +394,6 @@ export function CrazyGamesApp() {
   useEffect(() => {
     const interval = setInterval(() => {
       // Pause entire simulation engine while a rewarded video ad is actively playing
-      // Prevents heat dissipation, RAM mutations, volatile changes, or crashes while video is shown
       if (isAdPlayingRef.current) {
         return;
       }
@@ -205,13 +408,15 @@ export function CrazyGamesApp() {
 
       // 1. Crash detection: accurately capture unbanked volatile bytes and exact RAM used at meltdown
       if (!prev.isBSOD && next.isBSOD) {
+        totalCrashesRef.current++;
         audio.playBSODCrash();
         lostVolatileOnCrashRef.current = prev.volatileBytes;
         lostRamOnCrashRef.current = prev.ramUsedMB;
+        hitExtremeHeatRef.current = false;
+        triggerCheckAchievements();
       }
 
       // 2. Prevent BSOD auto-reboot countdown from expiring while revive ad attempt is actively underway
-      // Resumes promptly if ad fails, errors, is unavailable, or is cancelled
       if (prev.isBSOD && isReviveActive) {
         next.isBSOD = true;
         next.bsodCountdown = prev.bsodCountdown;
@@ -225,6 +430,7 @@ export function CrazyGamesApp() {
 
       // 4. Real Simulation Flush Completion: Explicit Payout Lineage
       if (prev.isFlushing && !next.isFlushing && next.bankedBytes > prev.bankedBytes) {
+        totalFlushesRef.current++;
         const basePayout = next.bankedBytes - prev.bankedBytes;
         const wasDoubleActive = isDoubleFlushRef.current;
 
@@ -246,6 +452,8 @@ export function CrazyGamesApp() {
           wasAlreadyDoubled: wasDoubleActive,
           timestamp: Date.now(),
         });
+
+        triggerCheckAchievements();
       }
 
       if (sceneCtrlRef.current) {
@@ -256,17 +464,22 @@ export function CrazyGamesApp() {
       const inSurge = next.heat >= surgeTemp && next.heat < CRITICAL_TEMP && !next.isBSOD;
       audio.updateHeatAudio(next.heat, inSurge);
 
+      // Periodically check thermal achievements (e.g. surge, safe cooling)
+      if (Math.random() < 0.2) {
+        triggerCheckAchievements();
+      }
+
       setDepthState(next);
     }, 100);
 
     return () => clearInterval(interval);
-  }, []);
+  }, [triggerCheckAchievements]);
 
   // Keyboard shortcut listener for CrazyGames browser play
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Suppress gameplay keyboard inputs while a rewarded ad is open
-      if (adModalStateRef.current.isOpen) {
+      if (adModalStateRef.current.isOpen || isAchievementModalOpen) {
         return;
       }
 
@@ -300,7 +513,7 @@ export function CrazyGamesApp() {
 
     const handleKeyUp = (e: KeyboardEvent) => {
       // Suppress gameplay keyup while ad modal is open
-      if (adModalStateRef.current.isOpen) {
+      if (adModalStateRef.current.isOpen || isAchievementModalOpen) {
         return;
       }
 
@@ -322,7 +535,7 @@ export function CrazyGamesApp() {
       window.removeEventListener('keyup', handleKeyUp);
       window.removeEventListener('pointerdown', handleFirstGesture);
     };
-  }, [gameState]);
+  }, [gameState, isAchievementModalOpen]);
 
   const handleStartGame = () => {
     audio.ensureContext();
@@ -330,7 +543,7 @@ export function CrazyGamesApp() {
     setGameState('playing');
   };
 
-  // Rewarded Ad Trigger Handler - Issues a unique attempt token per ad request and enforces cooldown pacing
+  // Rewarded Ad Trigger Handler
   const handleTriggerRewardedAd = useCallback((
     type: RewardedAdType,
     title: string,
@@ -350,9 +563,6 @@ export function CrazyGamesApp() {
       return;
     }
 
-    // Fair cooldown policy: Cooldown is NOT applied upon opening the modal.
-    // It is recorded only when ad playback starts or when the reward is claimed.
-
     const attemptId = `cg_ad_${Date.now()}_${nextAttemptIndexRef.current++}_${Math.random().toString(36).slice(2, 8)}`;
     setAdModalState({
       isOpen: true,
@@ -365,29 +575,17 @@ export function CrazyGamesApp() {
     });
   }, []);
 
-  // Rewarded Ad Claim Handler - Guaranteed single-grant execution upon real ad completion
+  // Rewarded Ad Claim Handler
   const handleClaimAdReward = useCallback((attemptId: string) => {
     const currentAd = adModalStateRef.current;
 
-    // Safety guard 1: Modal must be open
-    if (!currentAd.isOpen) {
-      console.warn('[AdSafety] Attempted claim on closed modal for attempt:', attemptId);
-      return;
-    }
+    if (!currentAd.isOpen) return;
+    if (!attemptId || attemptId !== currentAd.attemptId) return;
 
-    // Safety guard 2: Attempt token must match currently active ad attempt
-    if (!attemptId || attemptId !== currentAd.attemptId) {
-      console.warn('[AdSafety] Attempt token mismatch/superseded:', attemptId, 'expected:', currentAd.attemptId);
-      return;
-    }
-
-    // Safety guard 3: Exactly-once grant guard across session
-    if (grantedAttemptsRef.current.has(attemptId)) {
-      console.warn('[AdSafety] Duplicate reward claim prevented for attempt:', attemptId);
-      return;
-    }
+    if (grantedAttemptsRef.current.has(attemptId)) return;
     grantedAttemptsRef.current.add(attemptId);
-    // Cooldown is initiated exactly once per attempt (skipped here if already recorded on playback start)
+
+    // Cooldown is initiated exactly once per attempt
     recordCooldownForAttempt(attemptId, currentAd.type);
 
     audio.ensureContext();
@@ -405,9 +603,10 @@ export function CrazyGamesApp() {
       setIsTurboActive(true);
       setTurboTimeRemaining(30);
     } else if (currentAd.type === 'bsod_revive') {
+      totalRevivesRef.current++;
       const restoredCash = lostVolatileOnCrashRef.current;
       const restoredRam = lostRamOnCrashRef.current;
-      lostVolatileOnCrashRef.current = 0; // single-use consumed
+      lostVolatileOnCrashRef.current = 0;
       lostRamOnCrashRef.current = 0;
       setDepthState((prev) => ({
         ...prev,
@@ -418,6 +617,7 @@ export function CrazyGamesApp() {
         volatileBytes: restoredCash,
         ramUsedMB: Math.min(prev.ramMaxMB, restoredRam),
       }));
+      triggerCheckAchievements();
     } else if (currentAd.type === 'milestone_double') {
       const bonus = (currentAd.payoutBonus || 50) * 2;
       setDepthState((prev) => ({
@@ -439,7 +639,7 @@ export function CrazyGamesApp() {
     if (currentAd.onSuccess) {
       currentAd.onSuccess();
     }
-  }, [recordCooldownForAttempt]);
+  }, [recordCooldownForAttempt, triggerCheckAchievements]);
 
   const handleCloseAdModal = useCallback(() => {
     setIsAdPlaying(false);
@@ -448,6 +648,76 @@ export function CrazyGamesApp() {
     isReviveAttemptActiveRef.current = false;
     setAdModalState((prev) => ({ ...prev, isOpen: false }));
   }, []);
+
+  // Claim Goal Bounty
+  const handleClaimGoal = useCallback(() => {
+    const g = activeGoalInfo.goal;
+    if (!g || !activeGoalInfo.isCompleted || activeGoalInfo.isClaimed) return;
+
+    audio.ensureContext();
+    audio.playUpgradeSound();
+
+    try {
+      confetti({
+        particleCount: 50,
+        spread: 80,
+        origin: { y: 0.15 },
+        colors: ['#10b981', '#06b6d4', '#fbbf24'],
+      });
+    } catch {}
+
+    const reward = g.rewardCash;
+    setDepthState((prev) => ({
+      ...prev,
+      bankedBytes: prev.bankedBytes + reward,
+      lifetimeBankedBytes: prev.lifetimeBankedBytes + reward,
+      currentXP: prev.currentXP + reward,
+    }));
+
+    setClaimedGoalIds((prev) => {
+      const next = new Set(prev);
+      next.add(g.id);
+      saveClaimedGoalIds(next);
+      return next;
+    });
+
+    addToast({
+      type: 'goal',
+      title: `${g.title} Completed!`,
+      subtitle: g.description,
+      rewardText: `+$${reward.toLocaleString()} CASH`,
+      icon: '🎯',
+    });
+  }, [activeGoalInfo, addToast]);
+
+  // Claim Double Goal Bounty via Rewarded Ad
+  const handleClaimGoalDouble = useCallback(() => {
+    const g = activeGoalInfo.goal;
+    if (!g || !activeGoalInfo.isCompleted || activeGoalInfo.isClaimed) return;
+
+    handleTriggerRewardedAd(
+      'milestone_double',
+      'DOUBLE GOAL BOUNTY',
+      `Claim 2X Cash: +$${(g.rewardCash * 2).toLocaleString()}!`,
+      g.rewardCash,
+      () => {
+        setClaimedGoalIds((prev) => {
+          const next = new Set(prev);
+          next.add(g.id);
+          saveClaimedGoalIds(next);
+          return next;
+        });
+
+        addToast({
+          type: 'goal',
+          title: `${g.title} Doubled!`,
+          subtitle: `Watched CrazyGames ad to claim 2X Bounty!`,
+          rewardText: `+$${(g.rewardCash * 2).toLocaleString()} CASH`,
+          icon: '🚀',
+        });
+      }
+    );
+  }, [activeGoalInfo, handleTriggerRewardedAd, addToast]);
 
   const handleClaimObjectiveReward = useCallback((rewardBytes: number) => {
     setDepthState((prev) => ({
@@ -460,8 +730,9 @@ export function CrazyGamesApp() {
 
   // Fast reboot from 100°C Meltdown
   const handleFastReboot = () => {
-    lostVolatileOnCrashRef.current = 0; // Discard unrecovered cash and RAM on manual reboot
+    lostVolatileOnCrashRef.current = 0;
     lostRamOnCrashRef.current = 0;
+    totalRevivesRef.current++;
     audio.ensureContext();
     audio.playUpgradeSound();
     setDepthState((prev) => ({
@@ -474,6 +745,7 @@ export function CrazyGamesApp() {
       isFlushing: false,
       bsodCountdown: 0,
     }));
+    triggerCheckAchievements();
   };
 
   // Primary Gameplay Actions
@@ -481,10 +753,16 @@ export function CrazyGamesApp() {
     const s = stateRef.current;
     if (s.isBufferStalled || s.isFlushing || s.isBSOD) return;
 
+    totalClicksRef.current++;
     audio.ensureContext();
+
     let generated = calculateBytesPerProcess(s);
     if (isTurboActive) {
       generated *= 2;
+    }
+    // Apply permanent Milestone Data Multiplier
+    if (milestoneBuffs.dataMultiplier > 1) {
+      generated = Math.round(generated * milestoneBuffs.dataMultiplier);
     }
 
     const heatAdded = calculateHeatPerProcess(s);
@@ -498,23 +776,27 @@ export function CrazyGamesApp() {
       sceneCtrlRef.current.triggerPressVisual(isCritical);
     }
 
-    if (s.ramUsedMB + ramCost > s.ramMaxMB) {
+    const effectiveMaxRam = s.ramMaxMB + milestoneBuffs.bonusRamMB;
+    if (s.ramUsedMB + ramCost > effectiveMaxRam) {
       setDepthState((prev) => ({ ...prev, isBufferStalled: true }));
+      triggerCheckAchievements();
       return;
     }
 
     setDepthState((prev) => {
       const nextHeat = Math.min(CRITICAL_TEMP, prev.heat + heatAdded);
-      const nextUsedRam = Math.min(prev.ramMaxMB, prev.ramUsedMB + ramCost);
+      const nextUsedRam = Math.min(effectiveMaxRam, prev.ramUsedMB + ramCost);
 
       return {
         ...prev,
         volatileBytes: prev.volatileBytes + generated,
         heat: nextHeat,
         ramUsedMB: nextUsedRam,
-        isBufferStalled: nextUsedRam >= prev.ramMaxMB,
+        isBufferStalled: nextUsedRam >= effectiveMaxRam,
       };
     });
+
+    triggerCheckAchievements();
   };
 
   const handleStartFlush = () => {
@@ -551,6 +833,8 @@ export function CrazyGamesApp() {
       ...prev,
       heat: Math.max(40, prev.heat - 15),
     }));
+
+    triggerCheckAchievements();
   };
 
   const handlePurchaseUpgrade = (type: 'cpu' | 'ram' | 'cooling' | 'bus' | 'paste') => {
@@ -586,7 +870,27 @@ export function CrazyGamesApp() {
         ramMaxMB: nextMaxRam,
       };
     });
+
+    setTimeout(() => {
+      triggerCheckAchievements();
+    }, 50);
   };
+
+  const decoratedAchievements = useMemo(() => {
+    return getDecoratedAchievements(unlockedAchievements);
+  }, [unlockedAchievements]);
+
+  const decoratedMilestones = useMemo(() => {
+    return getDecoratedMilestones(depthState.lifetimeBankedBytes);
+  }, [depthState.lifetimeBankedBytes]);
+
+  const unlockedCount = useMemo(() => {
+    return Object.keys(unlockedAchievements).length;
+  }, [unlockedAchievements]);
+
+  const unlockedMilestonesCount = useMemo(() => {
+    return decoratedMilestones.filter((m) => m.unlocked).length;
+  }, [decoratedMilestones]);
 
   return (
     <div className="relative w-screen h-screen overflow-hidden bg-black select-none font-mono">
@@ -601,6 +905,20 @@ export function CrazyGamesApp() {
       {/* Cyberpunk Visual Overlays */}
       <ThermalGrainOverlay heat={depthState.heat} isBSOD={depthState.isBSOD} />
       <ThermalWarningOverlay heat={depthState.heat} isBSOD={depthState.isBSOD} />
+
+      {/* Celebration Toast Notifications */}
+      <ToastNotificationOverlay toasts={toasts} onDismiss={dismissToast} />
+
+      {/* Achievements & Milestones Modal */}
+      <AchievementModal
+        isOpen={isAchievementModalOpen}
+        onClose={() => setIsAchievementModalOpen(false)}
+        achievements={decoratedAchievements}
+        milestones={decoratedMilestones}
+        milestoneBuffs={milestoneBuffs}
+        lifetimeBankedBytes={depthState.lifetimeBankedBytes}
+        initialTab={achievementModalTab}
+      />
 
       {/* Rewarded Ad Modal */}
       <RewardedAdModal
@@ -681,6 +999,22 @@ export function CrazyGamesApp() {
             lastFlushEvent={lastFlushEvent}
             adCooldowns={adCooldowns}
             getCooldownRemaining={getCooldownRemaining}
+            // Retention Additions
+            goalInfo={activeGoalInfo}
+            onClaimGoal={handleClaimGoal}
+            onClaimGoalDouble={handleClaimGoalDouble}
+            unlockedAchievementsCount={unlockedCount}
+            totalAchievementsCount={ACHIEVEMENTS_DEFINITIONS.length}
+            unlockedMilestonesCount={unlockedMilestonesCount}
+            onOpenAchievements={() => {
+              setAchievementModalTab('achievements');
+              setIsAchievementModalOpen(true);
+            }}
+            onOpenMilestones={() => {
+              setAchievementModalTab('milestones');
+              setIsAchievementModalOpen(true);
+            }}
+            milestoneBuffs={milestoneBuffs}
           />
         </div>
       )}

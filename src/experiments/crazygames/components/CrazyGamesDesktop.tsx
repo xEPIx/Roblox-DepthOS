@@ -20,7 +20,10 @@ import { FloatingRewardItem, ArcadeObjective, OnboardingStage, RewardedAdType, F
 import { isAdOnCooldown } from '../adPacing';
 import { FloatingNumberFx } from './FloatingNumberFx';
 import { FirstMinuteObjectiveBar } from './FirstMinuteObjectiveBar';
+import { NextGoalPanel } from './NextGoalPanel';
 import { CrazyGamesOnboardingOverlay } from './CrazyGamesOnboardingOverlay';
+import { ActiveGoalInfo } from '../goals';
+import { MilestoneBuffs } from '../types';
 
 interface CrazyGamesDesktopProps {
   state: DepthOSState;
@@ -45,6 +48,16 @@ interface CrazyGamesDesktopProps {
   lastFlushEvent?: FlushEvent | null;
   adCooldowns?: Record<string, number>;
   getCooldownRemaining?: (type: RewardedAdType) => number;
+  // Retention Additions
+  goalInfo?: ActiveGoalInfo;
+  onClaimGoal?: () => void;
+  onClaimGoalDouble?: () => void;
+  unlockedAchievementsCount?: number;
+  totalAchievementsCount?: number;
+  unlockedMilestonesCount?: number;
+  onOpenAchievements?: () => void;
+  onOpenMilestones?: () => void;
+  milestoneBuffs?: MilestoneBuffs;
 }
 
 export const CrazyGamesDesktop: React.FC<CrazyGamesDesktopProps> = ({
@@ -64,6 +77,15 @@ export const CrazyGamesDesktop: React.FC<CrazyGamesDesktopProps> = ({
   lastFlushEvent = null,
   adCooldowns = {},
   getCooldownRemaining,
+  goalInfo,
+  onClaimGoal,
+  onClaimGoalDouble,
+  unlockedAchievementsCount = 0,
+  totalAchievementsCount = 11,
+  unlockedMilestonesCount = 0,
+  onOpenAchievements,
+  onOpenMilestones,
+  milestoneBuffs,
 }) => {
   const [floatingItems, setFloatingItems] = useState<FloatingRewardItem[]>([]);
   const [isProcessActive, setIsProcessActive] = useState<boolean>(false);
@@ -206,7 +228,7 @@ export const CrazyGamesDesktop: React.FC<CrazyGamesDesktopProps> = ({
   const isNearMeltdown = state.heat >= 95.0 && !state.isBSOD;
   const isFirstClickPending = objectives[0]?.current === 0;
   const thermalMult = calculateThermalMultiplier(state.heat, state.rootTree, state.faction);
-  const bytesPerClick = calculateBytesPerProcess(state);
+  const bytesPerClick = Math.round(calculateBytesPerProcess(state) * (milestoneBuffs?.dataMultiplier || 1));
   const heatPerClick = calculateHeatPerProcess(state);
   const flushDuration = calculateFlushDuration(state);
   const potentialPayout = calculateFlushPayout(state);
@@ -393,14 +415,27 @@ export const CrazyGamesDesktop: React.FC<CrazyGamesDesktopProps> = ({
       {/* Floating Damage / Reward Numbers Layer */}
       <FloatingNumberFx items={floatingItems} />
 
-      {/* Top Arcade Mission Banner */}
-      <FirstMinuteObjectiveBar
-        objective={objectives[currentObjIndex] || null}
-        stepIndex={currentObjIndex}
-        totalSteps={objectives.length}
-        onClaim={handleClaimActiveObjective}
-        onClaimDouble={handleClaimActiveObjectiveDouble}
-      />
+      {/* Top Arcade Goal & Progression Banner */}
+      {goalInfo ? (
+        <NextGoalPanel
+          goalInfo={goalInfo}
+          onClaimGoal={onClaimGoal || (() => {})}
+          onClaimDouble={onClaimGoalDouble}
+          unlockedAchievementsCount={unlockedAchievementsCount}
+          totalAchievementsCount={totalAchievementsCount}
+          unlockedMilestonesCount={unlockedMilestonesCount}
+          onOpenAchievements={onOpenAchievements || (() => {})}
+          onOpenMilestones={onOpenMilestones || (() => {})}
+        />
+      ) : (
+        <FirstMinuteObjectiveBar
+          objective={objectives[currentObjIndex] || null}
+          stepIndex={currentObjIndex}
+          totalSteps={objectives.length}
+          onClaim={handleClaimActiveObjective}
+          onClaimDouble={handleClaimActiveObjectiveDouble}
+        />
+      )}
 
       {/* Main Arcade Cockpit Layout */}
       <div className="flex-1 p-3 sm:p-6 grid grid-cols-1 lg:grid-cols-12 gap-3 sm:gap-6 overflow-y-auto">
@@ -434,7 +469,7 @@ export const CrazyGamesDesktop: React.FC<CrazyGamesDesktopProps> = ({
                     state.isBufferStalled ? 'text-red-400 font-black animate-pulse' : 'text-gray-300'
                   }`}
                 >
-                  {Math.round(state.ramUsedMB)} / {state.ramMaxMB} MB
+                  {Math.round(state.ramUsedMB)} / {state.ramMaxMB + (milestoneBuffs?.bonusRamMB || 0)} MB
                 </span>
               </div>
             </div>
@@ -700,6 +735,24 @@ export const CrazyGamesDesktop: React.FC<CrazyGamesDesktopProps> = ({
               </button>
             )}
           </div>
+
+          {/* Active Milestone Buffs Badge */}
+          {milestoneBuffs && (milestoneBuffs.dataMultiplier > 1 || milestoneBuffs.bonusRamMB > 0 || milestoneBuffs.coolingMultiplier > 1 || milestoneBuffs.surgeMultiplier > 1) && (
+            <div
+              onClick={onOpenMilestones}
+              className="p-2.5 rounded-xl bg-gradient-to-r from-cyan-950/70 to-[#07192c] border border-cyan-400/50 text-xs flex items-center justify-between cursor-pointer hover:border-cyan-300 transition-all shadow-sm group"
+            >
+              <div className="flex items-center gap-1.5 text-cyan-300 font-black">
+                <span className="animate-pulse">⭐</span>
+                <span className="text-[11px] uppercase tracking-wider">PERMANENT BUFFS</span>
+              </div>
+              <div className="flex items-center gap-1.5 text-[11px] font-bold text-amber-300">
+                {milestoneBuffs.dataMultiplier > 1 && <span>+{Math.round((milestoneBuffs.dataMultiplier - 1) * 100)}% DATA</span>}
+                {milestoneBuffs.bonusRamMB > 0 && <span>+{milestoneBuffs.bonusRamMB}MB RAM</span>}
+                <span className="text-cyan-400 group-hover:translate-x-0.5 transition-transform">➔</span>
+              </div>
+            </div>
+          )}
 
           {/* Rewarded Ad Boost: Turbo Overclock */}
           {(() => {

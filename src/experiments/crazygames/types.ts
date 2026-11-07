@@ -56,3 +56,62 @@ export interface FlushEvent {
   wasAlreadyDoubled: boolean;
   timestamp: number;
 }
+
+// ==========================================
+// Retention Engine: Achievements, Milestones & Goals
+// ==========================================
+
+export type AchievementCategory = 'mining' | 'hardware' | 'thermal' | 'economy';
+
+export interface Achievement {
+  id: string;
+  title: string;
+  description: string;
+  icon: string;
+  category: AchievementCategory;
+  rewardCash: number;
+  unlockedAt?: number;
+}
+
+export interface Milestone {
+  id: string;
+  targetBytes: number;
+  title: string;
+  description: string;
+  icon: string;
+  buffLabel: string;
+  dataMultiplier?: number;
+  bonusRamMB?: number;
+  coolingMultiplier?: number;
+  surgeMultiplier?: number;
+  flushSpeedMultiplier?: number;
+  unlocked: boolean;
+}
+
+export interface MilestoneBuffs {
+  dataMultiplier: number;
+  bonusRamMB: number;
+  coolingMultiplier: number;
+  surgeMultiplier: number;
+  flushSpeedMultiplier: number;
+}
+
+export interface ProgressionGoal {
+  id: string;
+  title: string;
+  description: string;
+  actionHint: string;
+  target: number;
+  rewardCash: number;
+  category: 'mining' | 'flush' | 'hardware' | 'thermal' | 'economy';
+}
+
+export interface ToastNotification {
+  id: string;
+  type: 'achievement' | 'milestone' | 'goal';
+  title: string;
+  subtitle: string;
+  rewardText?: string;
+  icon: string;
+  timestamp: number;
+}
